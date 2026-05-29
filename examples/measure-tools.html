@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>geoGlobe3D 示例 - 量算与绘制工具</title>
+  <link rel="stylesheet" href="../dist/Widgets/widgets.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body, #mapContainer { width: 100%; height: 100%; overflow: hidden; font-family: 'Microsoft YaHei', sans-serif; }
+
+    #toolbar {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 1000;
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      max-width: 680px;
+    }
+
+    .bar-group {
+      background: rgba(20, 26, 36, 0.94);
+      border-radius: 6px;
+      padding: 6px 10px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      box-shadow: 0 2px 10px rgba(0,0,0,.4);
+    }
+
+    .bar-group .label { font-size: 11px; color: #888; margin-right: 4px; white-space: nowrap; }
+    .bar-group button {
+      background: #3a3f4b; color: #ddd; border: 1px solid rgba(255,255,255,.06);
+      padding: 5px 10px; cursor: pointer; border-radius: 4px; font-size: 12px;
+      white-space: nowrap; transition: background .15s;
+    }
+    .bar-group button:hover { background: #4a90d9; color: #fff; }
+    .bar-group button.danger { color: #f06; }
+    .bar-group button.danger:hover { background: #d32f2f; color: #fff; }
+
+    #tip {
+      position: absolute;
+      bottom: 40px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,.78);
+      color: #4fc3f7;
+      font-size: 13px;
+      padding: 6px 18px;
+      border-radius: 4px;
+      pointer-events: none;
+      transition: opacity .3s;
+      opacity: 0;
+      z-index: 1001;
+      white-space: nowrap;
+    }
+
+    #tip.show { opacity: 1; }
+
+    #result {
+      position: absolute;
+      bottom: 80px;
+      right: 10px;
+      width: 260px;
+      background: rgba(20, 24, 32, 0.95);
+      border-radius: 8px;
+      padding: 12px;
+      z-index: 1000;
+      color: #ddd;
+      font-size: 12px;
+      box-shadow: 0 2px 12px rgba(0,0,0,.4);
+      max-height: 300px;
+      overflow-y: auto;
+    }
+
+    #result h4 { color: #4fc3f7; margin-bottom: 8px; font-size: 13px; }
+    #result .line { margin: 4px 0; padding: 4px 0; border-bottom: 1px solid #333; }
+    #result .val { color: #2ecc71; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <div id="mapContainer"></div>
+
+  <div id="toolbar">
+    <!-- 量算工具 -->
+    <div class="bar-group">
+      <span class="label">📐 量算</span>
+      <button onclick="doMeasure('distance')">距离</button>
+      <button onclick="doMeasure('area')">面积</button>
+      <button onclick="doMeasure('height')">海拔</button>
+      <button onclick="doMeasure('angle')">角度</button>
+      <button class="danger" onclick="measure.clear(); showTip('量算已清除')">✕ 清除</button>
+    </div>
+
+    <!-- 绘制工具 -->
+    <div class="bar-group">
+      <span class="label">✏️ 绘制</span>
+      <button onclick="doDraw('point')">点</button>
+      <button onclick="doDraw('polyline')">折线</button>
+      <button onclick="doDraw('polygon')">多边形</button>
+      <button onclick="doDraw('rectangle')">矩形</button>
+      <button onclick="doDraw('circle')">圆</button>
+      <button class="danger" onclick="draw.clear(); showTip('绘制已清除')">✕ 清除</button>
+    </div>
+  </div>
+
+  <div id="tip"></div>
+
+  <div id="result">
+    <h4>📊 结果面板</h4>
+    <div id="resultContent">尚无量算/绘制结果</div>
+  </div>
+
+  <script src="../dist/geoglobe.min.js"></script>
+  <script>
+    /* ═══════════════════════════════════════
+     *  初始化地图
+     * ═══════════════════════════════════════ */
+    const map = new geoGlobe.GeoMap('mapContainer', {
+      control: {
+        timeline: false, animation: false, baseLayerPicker: false,
+        homeButton: false, sceneModePicker: false,
+        navigationHelpButton: false, fullscreenButton: false,
+        toolbar: true, navBar: true
+      },
+      camera: { position: [116.39, 39.91, 5000000], heading: 0, pitch: -90, roll: 0 }
+    });
+
+    const measure = new geoGlobe.Measure(map);
+    const draw = new geoGlobe.Draw(map);
+
+    /* ═══════════════════════════════════════
+     *  量算逻辑
+     * ═══════════════════════════════════════ */
+    const measureHints = {
+      distance: '左键添加节点，右键结束 → 计算总距离',
+      area:     '左键添加节点，右键结束（≥3 点）→ 计算面积',
+      height:   '左键点击选取位置 → 获取海拔高度',
+      angle:    '依次点击三个点 → 计算夹角'
+    };
+
+    async function doMeasure(type) {
+      showTip(measureHints[type]);
+      try {
+        const result = await measure[type]();
+        let html = '';
+
+        if (type === 'distance') {
+          html = `<div class="line">📏 距离量算</div>
+                  <div class="line">节点数: ${result.positions.length}</div>
+                  <div class="line">总距离: <span class="val">${fmtDist(result.distance)}</span></div>`;
+          showTip('距离: ' + fmtDist(result.distance));
+        } else if (type === 'area') {
+          html = `<div class="line">📐 面积量算</div>
+                  <div class="line">节点数: ${result.positions.length}</div>
+                  <div class="line">面积: <span class="val">${fmtArea(result.area)}</span></div>`;
+          showTip('面积: ' + fmtArea(result.area));
+        } else if (type === 'height') {
+          html = `<div class="line">📍 海拔量算</div>
+                  <div class="line">经度: ${result.position[0].toFixed(6)}°</div>
+                  <div class="line">纬度: ${result.position[1].toFixed(6)}°</div>
+                  <div class="line">海拔: <span class="val">${result.height.toFixed(2)} m</span></div>`;
+          showTip('海拔: ' + result.height.toFixed(2) + ' m');
+        } else if (type === 'angle') {
+          html = `<div class="line">📐 角度量算</div>
+                  <div class="line">角度: <span class="val">${result.angle.toFixed(2)}°</span></div>`;
+          showTip('角度: ' + result.angle.toFixed(2) + '°');
+        }
+
+        document.getElementById('resultContent').innerHTML = html;
+      } catch (e) {
+        console.warn('量算取消或出错:', e);
+      }
+    }
+
+    /* ═══════════════════════════════════════
+     *  绘制逻辑
+     * ═══════════════════════════════════════ */
+    const drawHints = {
+      point:     '左键点击放置点',
+      polyline:  '左键添加节点，右键结束',
+      polygon:   '左键添加节点，右键结束（≥3 点）',
+      rectangle: '点击两次确定对角',
+      circle:    '第一次点击圆心，第二次确定半径'
+    };
+
+    async function doDraw(type) {
+      showTip(drawHints[type]);
+      try {
+        const result = await draw[type]();
+        let html = '';
+
+        if (type === 'point') {
+          html = `<div class="line">📍 绘制点</div>
+                  <div class="line">位置: <span class="val">[${result.position[0].toFixed(4)}, ${result.position[1].toFixed(4)}]</span></div>`;
+        } else if (type === 'polyline') {
+          html = `<div class="line">📏 绘制折线</div>
+                  <div class="line">节点数: <span class="val">${result.positions.length}</span></div>`;
+        } else if (type === 'polygon') {
+          html = `<div class="line">⬡ 绘制多边形</div>
+                  <div class="line">节点数: <span class="val">${result.positions.length}</span></div>`;
+        } else if (type === 'rectangle') {
+          const c = result.coordinates;
+          html = `<div class="line">▭ 绘制矩形</div>
+                  <div class="line">范围: <span class="val">[${c[0].toFixed(2)}, ${c[1].toFixed(2)}] → [${c[2].toFixed(2)}, ${c[3].toFixed(2)}]</span></div>`;
+        } else if (type === 'circle') {
+          html = `<div class="line">⊙ 绘制圆</div>
+                  <div class="line">半径: <span class="val">${fmtDist(result.radius)}</span></div>`;
+        }
+
+        document.getElementById('resultContent').innerHTML = html;
+        showTip(type + ' 绘制完成');
+      } catch (e) {
+        console.warn('绘制取消或出错:', e);
+      }
+    }
+
+    /* ═══════════════════════════════════════
+     *  工具函数
+     * ═══════════════════════════════════════ */
+    function fmtDist(m) { return m >= 1000 ? (m / 1000).toFixed(2) + ' km' : m.toFixed(1) + ' m'; }
+    function fmtArea(s) { return s >= 1e6 ? (s / 1e6).toFixed(3) + ' km²' : s.toFixed(1) + ' m²'; }
+
+    let tipTimer;
+    function showTip(text) {
+      const el = document.getElementById('tip');
+      el.textContent = text;
+      el.classList.add('show');
+      clearTimeout(tipTimer);
+      tipTimer = setTimeout(() => el.classList.remove('show'), 4000);
+    }
+
+    showTip('geoGlobe3D 量算/绘制示例已就绪 — 选择工具开始操作');
+  </script>
+</body>
+</html>

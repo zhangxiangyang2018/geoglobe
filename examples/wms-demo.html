@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>geoGlobe3D - WMS 图层示例</title>
+  <link rel="stylesheet" href="../dist/Widgets/widgets.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body, #mapContainer { width: 100%; height: 100%; overflow: hidden; font-family: 'Microsoft YaHei', sans-serif; }
+
+    #panel {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 1000;
+      width: 260px;
+      background: rgba(20, 24, 32, 0.95);
+      border-radius: 8px;
+      padding: 14px;
+      color: #ddd;
+      box-shadow: 0 4px 16px rgba(0,0,0,.5);
+    }
+
+    #panel h3 {
+      color: #4fc3f7;
+      font-size: 14px;
+      margin-bottom: 12px;
+      border-bottom: 1px solid #333;
+      padding-bottom: 8px;
+    }
+
+    .info-row {
+      font-size: 11px;
+      color: #aaa;
+      margin-bottom: 6px;
+      word-break: break-all;
+      line-height: 1.5;
+    }
+
+    .info-row span { color: #fff; }
+
+    .section { margin-top: 12px; }
+
+    .section-title {
+      font-size: 11px;
+      color: #888;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: .4px;
+    }
+
+    .btn-row { display: flex; flex-wrap: wrap; gap: 5px; }
+
+    button {
+      background: #2e3340;
+      color: #ccc;
+      border: 1px solid rgba(255,255,255,.08);
+      padding: 5px 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: background .15s;
+    }
+
+    button:hover { background: #4a90d9; color: #fff; }
+    button.active { background: #4a90d9; color: #fff; border-color: #4a90d9; }
+
+    .slider-row { margin-top: 10px; }
+
+    .slider-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: #aaa;
+      margin-bottom: 3px;
+    }
+
+    input[type=range] { width: 100%; accent-color: #4a90d9; }
+
+    #tip {
+      position: absolute;
+      bottom: 30px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,.78);
+      color: #4fc3f7;
+      font-size: 13px;
+      padding: 6px 18px;
+      border-radius: 4px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity .3s;
+      white-space: nowrap;
+    }
+
+    #tip.show { opacity: 1; }
+  </style>
+</head>
+<body>
+  <div id="mapContainer"></div>
+
+  <div id="panel">
+    <h3>🗺️ WMS 图层</h3>
+
+    <div class="info-row">服务：<span>GeoServer testqq</span></div>
+    <div class="info-row">图层：<span>testqq:0.1</span></div>
+    <div class="info-row">格式：<span>image/png（透明）</span></div>
+
+    <div class="info-row" style="color:#f90;margin-top:8px;font-size:10px;">
+      ⚠️ 跨域：需在 GeoServer web.xml 中开启 CORS 过滤器，或使用同源代理。
+    </div>
+
+    <div class="section">
+      <div class="section-title">图层控制</div>
+      <div class="btn-row">
+        <button id="btnShow" class="active" onclick="toggleLayer()">隐藏图层</button>
+        <button onclick="flyToLayer()">定位图层</button>
+      </div>
+    </div>
+
+    <div class="slider-row">
+      <div class="slider-label">
+        <span>透明度</span>
+        <span id="alphaVal">1.0</span>
+      </div>
+      <input type="range" min="0" max="1" step="0.05" value="1"
+             oninput="setAlpha(this.value)">
+    </div>
+
+    <div class="section">
+      <div class="section-title">瓦片尺寸（大一倍更清晰，请求数减半）</div>
+      <div class="btn-row">
+        <button id="tile256" class="active" onclick="setTileSize(256)">256</button>
+        <button id="tile512" onclick="setTileSize(512)">512</button>
+        <button id="tile1024" onclick="setTileSize(1024)">1024</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="tip"></div>
+
+  <script src="../dist/geoglobe.min.js"></script>
+  <script>
+    // ── 工具函数（需先声明，避免初始化时 TDZ 报错）────────────
+    var _tipTimer;
+    function showTip(text, duration = 3000) {
+      const el = document.getElementById('tip');
+      el.textContent = text;
+      el.classList.add('show');
+      clearTimeout(_tipTimer);
+      _tipTimer = setTimeout(() => el.classList.remove('show'), duration);
+    }
+
+    // ── WMS 服务参数 ──────────────────────────────────────────
+    const WMS_URL   = 'http://localhost:8080/geoserver/testqq/wms';
+    const WMS_LAYER = 'testqq:0.1';
+
+    // 图层 bbox（EPSG:4326，美国范围）
+    const LAYER_BBOX = {
+      west:  -124.73142200000001,
+      south:  24.955967,
+      east:  -66.969849,
+      north:  49.371735
+    };
+
+    // ── 初始化地图 ────────────────────────────────────────────
+    const map = new geoGlobe.GeoMap('mapContainer', {
+      skyBox: 'default',
+      scene: {
+        msaaSamples: 4   // MSAA 4x 抗锯齿（2/4/8，越大越平滑，4 是性能与质量平衡点）
+      },
+      control: {
+        timeline: false,
+        animation: false,
+        baseLayerPicker: false,
+        homeButton: false,
+        sceneModePicker: true,
+        navigationHelpButton: false,
+        fullscreenButton: false,
+        toolbar: true,
+        navBar: true,
+        navigation: false
+      },
+      // 定位到图层中心（美国）
+      camera: {
+        position: [
+          (LAYER_BBOX.west + LAYER_BBOX.east) / 2,
+          (LAYER_BBOX.south + LAYER_BBOX.north) / 2,
+          5000000
+        ],
+        heading: 0,
+        pitch: -90,
+        roll: 0
+      }
+    });
+
+    // ── 添加 WMS 图层 ─────────────────────────────────────────
+    let wmsLayer;
+    let currentTileSize = 256;
+
+    function createWmsLayer(tileSize) {
+      return new geoGlobe.ImageryLayer({
+        type: 'wms',
+        url: WMS_URL,
+        layer: WMS_LAYER,
+        format: 'image/png',
+        tileWidth: tileSize,
+        tileHeight: tileSize,
+        alpha: 1.0
+      });
+    }
+
+    wmsLayer = createWmsLayer(currentTileSize);
+    map.addLayer(wmsLayer);
+    showTip('WMS 图层加载中，如出现跨域错误请在 GeoServer 开启 CORS', 5000);
+
+    // 切换瓦片尺寸（移除旧图层 + 新建）
+    function setTileSize(size) {
+      if (size === currentTileSize) return;
+      currentTileSize = size;
+      const alpha = wmsLayer.alpha;
+      map.removeLayer(wmsLayer);
+      wmsLayer = createWmsLayer(size);
+      wmsLayer.alpha = alpha;
+      map.addLayer(wmsLayer);
+      ['tile256','tile512','tile1024'].forEach(id => {
+        document.getElementById(id).classList.toggle('active', id === `tile${size}`);
+      });
+      showTip(`瓦片尺寸已切换为 ${size}×${size}`);
+    }
+
+    // ── 图层显隐 ──────────────────────────────────────────────
+    let layerVisible = true;
+
+    function toggleLayer() {
+      layerVisible = !layerVisible;
+      wmsLayer.setShow(layerVisible);
+      const btn = document.getElementById('btnShow');
+      btn.textContent = layerVisible ? '隐藏图层' : '显示图层';
+      btn.classList.toggle('active', layerVisible);
+      showTip(layerVisible ? '图层已显示' : '图层已隐藏');
+    }
+
+    // ── 定位到图层范围 ────────────────────────────────────────
+    function flyToLayer() {
+      // 计算 bbox 中心点，飞行定位
+      const centerLon = (LAYER_BBOX.west + LAYER_BBOX.east) / 2;
+      const centerLat = (LAYER_BBOX.south + LAYER_BBOX.north) / 2;
+      map.viewer.camera.flyTo({
+        destination: map.viewer.scene.globe.ellipsoid.cartographicToCartesian(
+          { longitude: centerLon * Math.PI / 180, latitude: centerLat * Math.PI / 180, height: 4000000 }
+        ),
+        orientation: { heading: 0, pitch: -Math.PI / 2, roll: 0 },
+        duration: 1.5
+      });
+      showTip('正在定位到图层范围…');
+    }
+
+    // ── 透明度 ────────────────────────────────────────────────
+    function setAlpha(val) {
+      const alpha = parseFloat(val);
+      wmsLayer.setAlpha(alpha);
+      document.getElementById('alphaVal').textContent = alpha.toFixed(2);
+    }
+
+
+  </script>
+</body>
+</html>

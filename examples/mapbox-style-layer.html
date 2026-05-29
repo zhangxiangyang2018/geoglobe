@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>geoGlobe3D - MapboxStyleLayer 示例</title>
+  <link rel="stylesheet" href="../dist/Widgets/widgets.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body, #mapContainer { width: 100%; height: 100%; overflow: hidden; font-family: 'Microsoft YaHei', sans-serif; }
+
+    #toolbar {
+      position: absolute; top: 10px; left: 10px; z-index: 1000;
+      display: flex; gap: 6px; flex-wrap: wrap; max-width: 960px;
+    }
+    .bar-group {
+      background: rgba(20, 26, 36, 0.94);
+      border-radius: 6px; padding: 6px 10px; display: flex; align-items: center; gap: 4px;
+      box-shadow: 0 2px 10px rgba(0,0,0,.4);
+    }
+    .bar-group .label { font-size: 11px; color: #888; margin-right: 4px; white-space: nowrap; }
+    .bar-group button {
+      background: #3a3f4b; color: #ddd; border: 1px solid rgba(255,255,255,.06);
+      padding: 5px 10px; cursor: pointer; border-radius: 4px; font-size: 12px;
+      white-space: nowrap; transition: background .15s;
+    }
+    .bar-group button:hover  { background: #4a90d9; color: #fff; }
+    .bar-group button.active { background: #4a90d9; color: #fff; border-color: #4a90d9; }
+    .bar-group button.danger { color: #f06; }
+    .bar-group button.danger:hover { background: #d32f2f; color: #fff; }
+
+    #tip {
+      position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%);
+      background: rgba(0,0,0,.78); color: #4fc3f7; font-size: 13px; padding: 6px 18px;
+      border-radius: 4px; pointer-events: none; transition: opacity .3s; opacity: 0;
+      z-index: 1001; white-space: nowrap;
+    }
+    #tip.show { opacity: 1; }
+
+    #info {
+      position: absolute; bottom: 50px; right: 10px; z-index: 1000;
+      background: rgba(20, 26, 36, 0.92); border-radius: 6px; padding: 10px 14px;
+      box-shadow: 0 2px 10px rgba(0,0,0,.4); font-size: 12px; color: #ccc;
+      min-width: 180px;
+    }
+    #info h4 { font-size: 13px; color: #fff; margin-bottom: 8px; }
+    #info .row { display: flex; justify-content: space-between; gap: 12px; margin: 3px 0; }
+    #info .key { color: #888; }
+    #info .val { color: #4fc3f7; }
+  </style>
+</head>
+<body>
+  <div id="mapContainer"></div>
+
+  <div id="toolbar">
+    <!-- Style 切换 -->
+    <div class="bar-group">
+      <span class="label">🗺 样式</span>
+      <button id="btnPlain"  class="active" onclick="loadStyle('plain')">plain（矢量）</button>
+      <button id="btnStyle"  onclick="loadStyle('style')">style（详细）</button>
+    </div>
+
+    <!-- 显示控制 -->
+    <div class="bar-group">
+      <span class="label">👁 显示</span>
+      <button id="btnShow" class="active" onclick="toggleShow()">显示</button>
+    </div>
+
+    <!-- 透明度 -->
+    <div class="bar-group">
+      <span class="label">💧 透明度</span>
+      <button onclick="setAlpha(1.0)">100%</button>
+      <button onclick="setAlpha(0.7)">70%</button>
+      <button onclick="setAlpha(0.4)">40%</button>
+    </div>
+
+    <!-- 移除 -->
+    <div class="bar-group">
+      <button class="danger" onclick="removeLayer()">✕ 移除图层</button>
+    </div>
+  </div>
+
+  <!-- 右下角信息面板 -->
+  <div id="info">
+    <h4>图层信息</h4>
+    <div class="row"><span class="key">当前样式</span><span class="val" id="iStyle">-</span></div>
+    <div class="row"><span class="key">透明度</span><span class="val" id="iAlpha">-</span></div>
+    <div class="row"><span class="key">显示状态</span><span class="val" id="iShow">-</span></div>
+  </div>
+
+  <div id="tip"></div>
+
+  <script src="../dist/geoglobe.min.js"></script>
+  <script>
+    // ─── 1. 初始化地图 ──────────────────────────────────────────────────────────
+    const map = new geoGlobe.GeoMap('mapContainer', {
+      control: {
+        timeline:            false,
+        animation:           false,
+        baseLayerPicker:     false,
+        homeButton:          false,
+        sceneModePicker:     false,
+        navigationHelpButton: false,
+        fullscreenButton:    false,
+        toolbar:             true,
+        navBar:              true,
+        navigation:          false,
+      },
+      camera: {
+        position: [17.65, 32.95, 8000000],
+        heading: 0,
+        pitch: -90,
+        roll: 0,
+      },
+    });
+
+    // 关闭大气效果，防止低层级地图偏色
+    map.viewer.scene.globe.showGroundAtmosphere = false;
+    map.viewer.scene.skyAtmosphere.show         = false;
+    map.viewer.scene.fog.enabled                = false;
+    map.viewer.scene.globe.enableLighting       = false;
+
+    // ─── 2. 图层管理 ────────────────────────────────────────────────────────────
+    let currentLayer = null;
+    let currentStyleName = '';
+
+    const STYLES = {
+      plain: 'assets/demotiles/plain.json',
+      style: 'assets/demotiles/style.json',
+    };
+
+    async function loadStyle(name) {
+      // 先移除已有图层
+      if (currentLayer) {
+        map.removeLayer(currentLayer);
+        currentLayer = null;
+      }
+
+      showTip(`正在加载 ${name}.json…`, 0);
+
+      const layer = new geoGlobe.MapboxStyleLayer({
+        style: STYLES[name],
+        alpha: 1.0,
+        onLoad(styleJson) {
+          showTip(`${name}.json 加载完成，共 ${styleJson.layers?.length ?? 0} 个图层定义`);
+          updateInfo();
+        },
+      });
+
+      layer.on('error', (err) => {
+        showTip(`加载失败: ${err.message}`);
+      });
+
+      map.addLayer(layer);
+      currentLayer     = layer;
+      currentStyleName = name;
+
+
+      document.getElementById('btnPlain').classList.toggle('active', name === 'plain');
+      document.getElementById('btnStyle').classList.toggle('active', name === 'style');
+      document.getElementById('btnShow').classList.add('active');
+      document.getElementById('btnShow').textContent = '显示';
+
+      updateInfo();
+    }
+
+    function toggleShow() {
+      if (!currentLayer) { showTip('请先加载一个样式'); return; }
+      currentLayer.setShow(!currentLayer.show);
+      const btn = document.getElementById('btnShow');
+      btn.classList.toggle('active', currentLayer.show);
+      btn.textContent = currentLayer.show ? '显示' : '隐藏';
+      showTip(currentLayer.show ? '图层已显示' : '图层已隐藏');
+      updateInfo();
+    }
+
+    function setAlpha(alpha) {
+      if (!currentLayer) { showTip('请先加载一个样式'); return; }
+      currentLayer.setAlpha(alpha);
+      showTip(`透明度已设置为 ${Math.round(alpha * 100)}%`);
+      updateInfo();
+    }
+
+    function removeLayer() {
+      if (!currentLayer) { showTip('当前没有图层'); return; }
+      map.removeLayer(currentLayer);
+      currentLayer = null;
+      currentStyleName = '';
+      document.getElementById('btnPlain').classList.remove('active');
+      document.getElementById('btnStyle').classList.remove('active');
+      showTip('图层已移除');
+      updateInfo();
+    }
+
+   
+    function updateInfo() {
+      document.getElementById('iStyle').textContent = currentStyleName || '（无）';
+      document.getElementById('iAlpha').textContent = currentLayer
+        ? Math.round(currentLayer.alpha * 100) + '%' : '-';
+      document.getElementById('iShow').textContent = currentLayer
+        ? (currentLayer.show ? '显示' : '隐藏') : '-';
+    }
+
+    let tipTimer = null;
+    function showTip(text, duration) {
+      const el = document.getElementById('tip');
+      el.textContent = text;
+      el.classList.add('show');
+      clearTimeout(tipTimer);
+      if (duration !== 0) {
+        tipTimer = setTimeout(() => el.classList.remove('show'), duration ?? 4000);
+      }
+    }
+
+ 
+    loadStyle('plain');
+  </script>
+</body>
+</html>

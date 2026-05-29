@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>geoGlobe3D 示例 - 相机与场景控制</title>
+  <link rel="stylesheet" href="../dist/Widgets/widgets.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body, #mapContainer { width: 100%; height: 100%; overflow: hidden; font-family: 'Microsoft YaHei', sans-serif; }
+
+    #panel {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 1000;
+      width: 290px;
+      background: rgba(20, 24, 32, 0.95);
+      border-radius: 8px;
+      padding: 14px;
+      color: #ddd;
+      box-shadow: 0 4px 16px rgba(0,0,0,.5);
+    }
+
+    #panel h3 {
+      color: #4fc3f7;
+      font-size: 14px;
+      margin-bottom: 12px;
+      border-bottom: 1px solid #333;
+      padding-bottom: 8px;
+    }
+
+    .section { margin-bottom: 12px; }
+
+    .section-title {
+      font-size: 11px;
+      color: #888;
+      margin-bottom: 5px;
+      text-transform: uppercase;
+      letter-spacing: .4px;
+    }
+
+    .btn-row { display: flex; flex-wrap: wrap; gap: 4px; }
+
+    button {
+      background: #2e3340;
+      color: #ccc;
+      border: 1px solid rgba(255,255,255,.08);
+      padding: 5px 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: background .15s;
+      white-space: nowrap;
+    }
+
+    button:hover { background: #4a90d9; color: #fff; }
+    button.active { background: #4a90d9; color: #fff; border-color: #4a90d9; }
+
+    .info-box {
+      background: rgba(0,0,0,.4);
+      border-radius: 4px;
+      padding: 7px 10px;
+      font-size: 11px;
+      color: #aaa;
+      font-family: monospace;
+      min-height: 36px;
+      line-height: 1.6;
+      word-break: break-all;
+    }
+
+    #tip {
+      position: absolute;
+      bottom: 30px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,.78);
+      color: #4fc3f7;
+      font-size: 13px;
+      padding: 6px 18px;
+      border-radius: 4px;
+      pointer-events: none;
+      transition: opacity .3s;
+      opacity: 0;
+      z-index: 1001;
+      white-space: nowrap;
+    }
+
+    #tip.show { opacity: 1; }
+  </style>
+</head>
+<body>
+  <div id="mapContainer"></div>
+
+  <div id="panel">
+    <h3>🎥 相机与场景控制</h3>
+
+    <!-- 飞行定位 -->
+    <div class="section">
+      <div class="section-title">flyTo — 飞行定位</div>
+      <div class="btn-row">
+        <button onclick="fly('beijing')">北京</button>
+        <button onclick="fly('shanghai')">上海</button>
+        <button onclick="fly('chengdu')">成都</button>
+        <button onclick="fly('world')">全球</button>
+      </div>
+    </div>
+
+    <!-- 瞬间跳转 -->
+    <div class="section">
+      <div class="section-title">setView — 瞬间跳转</div>
+      <div class="btn-row">
+        <button onclick="jump('xian')">西安</button>
+        <button onclick="jump('guangzhou')">广州</button>
+        <button onclick="jump('china')">俯视中国</button>
+      </div>
+    </div>
+
+    <!-- 缩放 & 复位 -->
+    <div class="section">
+      <div class="section-title">缩放 & 复位</div>
+      <div class="btn-row">
+        <button onclick="map.zoomIn()">放大 (+)</button>
+        <button onclick="map.zoomOut()">缩小 (-)</button>
+        <button onclick="map.resetView()">复位初始视角</button>
+      </div>
+    </div>
+
+    <!-- 场景模式 -->
+    <div class="section">
+      <div class="section-title">setSceneMode — 场景模式切换</div>
+      <div class="btn-row">
+        <button id="btn-3d" class="active" onclick="switchMode('3d')">3D 地球</button>
+        <button id="btn-2d" onclick="switchMode('2d')">2D 平面</button>
+        <button id="btn-columbus" onclick="switchMode('columbus')">哥伦布视图</button>
+      </div>
+    </div>
+
+    <!-- 相机信息 -->
+    <div class="section">
+      <div class="section-title">getCamera — 当前相机姿态</div>
+      <div id="cameraInfo" class="info-box">点击"刷新"查看</div>
+      <div class="btn-row" style="margin-top: 5px">
+        <button onclick="refreshCameraInfo()">刷新相机信息</button>
+        <button onclick="refreshExtent()">查看视野范围</button>
+      </div>
+    </div>
+
+    <!-- 截图 -->
+    <div class="section">
+      <div class="section-title">截图（screenshot / downloadScreenshot）</div>
+      <div class="btn-row">
+        <button onclick="takeScreenshot()">截图预览</button>
+        <button onclick="map.downloadScreenshot('geoglobe-screenshot.png')">下载截图</button>
+      </div>
+      <div id="screenshotPreview" style="margin-top: 6px; display: none;">
+        <img id="previewImg" style="width:100%; border-radius:4px; border:1px solid #444;">
+      </div>
+    </div>
+  </div>
+
+  <div id="tip"></div>
+
+  <script src="../dist/geoglobe.min.js"></script>
+  <script>
+    /* ═══════════════════════════════════════
+     *  初始化地图
+     * ═══════════════════════════════════════ */
+    const map = new geoGlobe.GeoMap('mapContainer', {
+      baseImagery: 'naturalEarth',
+      control: {
+        timeline: false, animation: false, baseLayerPicker: false,
+        homeButton: false, sceneModePicker: false,
+        navigationHelpButton: false, fullscreenButton: false,
+        toolbar: true, navBar: true
+      },
+      // 初始相机（复位时回到此位置）
+      camera: {
+        position: [105, 35, 8000000],
+        pitch: -90
+      }
+    });
+
+    /* ═══════════════════════════════════════
+     *  预设位置
+     * ═══════════════════════════════════════ */
+    const LOCATIONS = {
+      beijing:   { pos: [116.40, 39.91, 800000],  pitch: -45, label: '北京' },
+      shanghai:  { pos: [121.47, 31.23, 500000],  pitch: -40, label: '上海' },
+      chengdu:   { pos: [104.07, 30.57, 600000],  pitch: -40, label: '成都' },
+      world:     { pos: [105.00, 35.00, 15000000],pitch: -90, label: '全球视角' },
+      xian:      { pos: [108.94, 34.34, 600000],  pitch: -40, label: '西安' },
+      guangzhou: { pos: [113.26, 23.13, 500000],  pitch: -40, label: '广州' },
+      china:     { pos: [105.00, 35.00, 5000000], pitch: -90, label: '俯视中国' },
+    };
+
+    /* ═══════════════════════════════════════
+     *  flyTo — 带动画飞行
+     * ═══════════════════════════════════════ */
+    function fly(key) {
+      const loc = LOCATIONS[key];
+      // map.flyTo([lng, lat, height], { pitch, duration })
+      map.flyTo(loc.pos, { pitch: loc.pitch, duration: 2 });
+      showTip('飞行中 → ' + loc.label);
+    }
+
+    /* ═══════════════════════════════════════
+     *  setView — 瞬间跳转（无动画）
+     * ═══════════════════════════════════════ */
+    function jump(key) {
+      const loc = LOCATIONS[key];
+      // 方式一：数组简写  map.setView([lng, lat, height])
+      // 方式二：完整对象  map.setView({ position, heading, pitch, roll })
+      map.setView({ position: loc.pos, pitch: loc.pitch });
+      showTip('已跳转 → ' + loc.label);
+    }
+
+    /* ═══════════════════════════════════════
+     *  场景模式
+     * ═══════════════════════════════════════ */
+    let activeModeBtn = 'btn-3d';
+
+    function switchMode(mode) {
+      document.getElementById(activeModeBtn).classList.remove('active');
+      activeModeBtn = 'btn-' + mode;
+      document.getElementById(activeModeBtn).classList.add('active');
+
+      // map.setSceneMode('3d' | '2d' | 'columbus')
+      map.setSceneMode(mode, 1.5);
+      const labels = { '3d': '3D 球形地球', '2d': '2D 平面地图', 'columbus': '哥伦布视图（2.5D）' };
+      showTip('场景模式 → ' + labels[mode]);
+    }
+
+    /* ═══════════════════════════════════════
+     *  相机信息
+     * ═══════════════════════════════════════ */
+    function refreshCameraInfo() {
+      // map.getCamera() 返回 { position, heading, pitch, roll, height }
+      const cam = map.getCamera();
+      const pos = cam.position;
+      const info = [
+        `位置: ${pos[0].toFixed(4)}°, ${pos[1].toFixed(4)}°`,
+        `高度: ${(cam.height / 1000).toFixed(1)} km`,
+        `方位角: ${cam.heading.toFixed(1)}°`,
+        `俯仰角: ${cam.pitch.toFixed(1)}°`,
+      ].join('\n');
+      document.getElementById('cameraInfo').textContent = info;
+      showTip('相机信息已更新');
+    }
+
+    function refreshExtent() {
+      // map.getCurrentExtent() 返回 { west, south, east, north }
+      const ext = map.getCurrentExtent();
+      if (!ext) return showTip('无法获取视野范围（相机可能在地球背面）');
+      const info = [
+        `西: ${ext.west.toFixed(2)}°  东: ${ext.east.toFixed(2)}°`,
+        `南: ${ext.south.toFixed(2)}°  北: ${ext.north.toFixed(2)}°`,
+      ].join('\n');
+      document.getElementById('cameraInfo').textContent = info;
+      showTip('当前视野范围已更新');
+    }
+
+    /* ═══════════════════════════════════════
+     *  截图
+     * ═══════════════════════════════════════ */
+    function takeScreenshot() {
+      // map.screenshot() 返回 base64 data URL
+      const dataUrl = map.screenshot();
+      const preview = document.getElementById('screenshotPreview');
+      document.getElementById('previewImg').src = dataUrl;
+      preview.style.display = 'block';
+      showTip('截图已生成（点击"下载截图"保存）');
+    }
+
+    /* ═══════════════════════════════════════
+     *  提示
+     * ═══════════════════════════════════════ */
+    let tipTimer;
+    function showTip(text) {
+      const el = document.getElementById('tip');
+      el.textContent = text;
+      el.classList.add('show');
+      clearTimeout(tipTimer);
+      tipTimer = setTimeout(() => el.classList.remove('show'), 4000);
+    }
+
+    showTip('geoGlobe3D 相机与场景控制示例 — 探索所有相机 API');
+  </script>
+</body>
+</html>

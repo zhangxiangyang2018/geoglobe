@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>geoGlobe3D 示例 - 数据图层（GeoJSON / KML / CZML）</title>
+  <link rel="stylesheet" href="../dist/Widgets/widgets.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body, #mapContainer { width: 100%; height: 100%; overflow: hidden; font-family: 'Microsoft YaHei', sans-serif; }
+
+    #toolbar {
+      position: absolute; top: 10px; left: 10px; z-index: 1000;
+      display: flex; gap: 6px; flex-wrap: wrap; max-width: 700px;
+    }
+
+    .bar-group {
+      background: rgba(20, 26, 36, 0.94);
+      border-radius: 6px; padding: 6px 10px; display: flex; align-items: center; gap: 4px;
+      box-shadow: 0 2px 10px rgba(0,0,0,.4);
+    }
+
+    .bar-group .label { font-size: 11px; color: #888; margin-right: 4px; white-space: nowrap; }
+    .bar-group button {
+      background: #3a3f4b; color: #ddd; border: 1px solid rgba(255,255,255,.06);
+      padding: 5px 10px; cursor: pointer; border-radius: 4px; font-size: 12px;
+      white-space: nowrap; transition: background .15s;
+    }
+    .bar-group button:hover { background: #4a90d9; color: #fff; }
+    .bar-group button.active { background: #4a90d9; color: #fff; border-color: #4a90d9; }
+    .bar-group button.danger { color: #f06; }
+    .bar-group button.danger:hover { background: #d32f2f; color: #fff; }
+
+    #tip {
+      position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%);
+      background: rgba(0,0,0,.78); color: #4fc3f7; font-size: 13px; padding: 6px 18px;
+      border-radius: 4px; pointer-events: none; transition: opacity .3s; opacity: 0;
+      z-index: 1001; white-space: nowrap;
+    }
+    #tip.show { opacity: 1; }
+  </style>
+</head>
+<body>
+  <div id="mapContainer"></div>
+
+  <div id="toolbar">
+    <!-- GeoJSON -->
+    <div class="bar-group">
+      <span class="label">📦 GeoJSON</span>
+      <button onclick="addGeoJsonPoints()">随机点</button>
+      <button onclick="addGeoJsonPolygons()">随机面</button>
+      <button onclick="toggleGeoJson()">显隐</button>
+      <button onclick="flyGeoJson()">定位</button>
+      <button class="danger" onclick="removeGeoJson()">删除</button>
+    </div>
+
+    <!-- KML -->
+    <div class="bar-group">
+      <span class="label">📍 KML</span>
+      <button onclick="addKml()">加载城市标注</button>
+      <button onclick="toggleKml()">显隐</button>
+      <button onclick="flyKml()">定位</button>
+      <button class="danger" onclick="removeKml()">删除</button>
+    </div>
+
+    <!-- CZML 时序 -->
+    <div class="bar-group">
+      <span class="label">🕐 CZML</span>
+      <button onclick="addCzml()">加载卫星轨道</button>
+      <button onclick="toggleCzml()">显隐</button>
+      <button class="danger" onclick="removeCzml()">删除</button>
+    </div>
+
+    <!-- 图层排序 -->
+    <div class="bar-group">
+      <span class="label">📂 图层</span>
+      <button onclick="listLayers()">列出</button>
+      <button class="danger" onclick="removeAllLayers()">全部清除</button>
+    </div>
+  </div>
+
+  <div id="tip"></div>
+
+  <script src="../dist/geoglobe.min.js"></script>
+  <script>
+    /* ═══════════════════════════════════════
+     *  初始化
+     * ═══════════════════════════════════════ */
+    const map = new geoGlobe.GeoMap('mapContainer', {
+      control: {
+        timeline: true, animation: true, baseLayerPicker: false,
+        homeButton: false, sceneModePicker: false,
+        navigationHelpButton: false, fullscreenButton: false,
+        toolbar: false, navBar: true
+      },
+      camera: { position: [105, 35, 8000000], heading: 0, pitch: -90, roll: 0 }
+    });
+
+    let geojsonLayer = null;
+    let kmlLayer = null;
+    let czmlLayer = null;
+
+    /* ═══════════════════════════════════════
+     *  GeoJSON 示例
+     * ═══════════════════════════════════════ */
+
+    function addGeoJsonPoints() {
+      // 移除之前的
+      if (geojsonLayer) map.removeLayer(geojsonLayer);
+
+      const features = [];
+      for (let i = 0; i < 50; i++) {
+        features.push({
+          type: 'Feature',
+          properties: { name: '城市 ' + (i + 1), population: Math.floor(Math.random() * 1000000) },
+          geometry: { type: 'Point', coordinates: [80 + Math.random() * 55, 15 + Math.random() * 40] }
+        });
+      }
+
+      geojsonLayer = new geoGlobe.GeoJsonLayer({
+        name: 'GeoJSON 随机点',
+        data: { type: 'FeatureCollection', features },
+        markerColor: '#e74c3c',
+        markerSize: 24,
+        clampToGround: false,
+        onLoad: (ds) => showTip('GeoJSON 加载完成: ' + ds.entities.values.length + ' 个要素')
+      });
+      map.addLayer(geojsonLayer);
+      showTip('正在加载 GeoJSON 点数据...');
+    }
+
+    function addGeoJsonPolygons() {
+      if (geojsonLayer) map.removeLayer(geojsonLayer);
+
+      const features = [];
+      for (let i = 0; i < 10; i++) {
+        const cx = 90 + Math.random() * 30, cy = 25 + Math.random() * 20;
+        const r = 1 + Math.random() * 3;
+        const coords = [];
+        for (let j = 0; j <= 6; j++) {
+          const a = (Math.PI * 2 / 6) * (j % 6);
+          coords.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r * 0.8]);
+        }
+        features.push({
+          type: 'Feature',
+          properties: { name: '区域 ' + (i + 1) },
+          geometry: { type: 'Polygon', coordinates: [coords] }
+        });
+      }
+
+      geojsonLayer = new geoGlobe.GeoJsonLayer({
+        name: 'GeoJSON 随机面',
+        data: { type: 'FeatureCollection', features },
+        stroke: '#2ecc71',
+        strokeWidth: 2,
+        fill: 'rgba(46,204,113,0.3)',
+        clampToGround: false,
+        onLoad: () => showTip('GeoJSON 面数据加载完成')
+      });
+      map.addLayer(geojsonLayer);
+    }
+
+    function toggleGeoJson() {
+      if (!geojsonLayer) return showTip('请先添加 GeoJSON 图层');
+      geojsonLayer.toggleShow();
+      showTip('GeoJSON 图层 ' + (geojsonLayer.show ? '已显示' : '已隐藏'));
+    }
+
+    function flyGeoJson() {
+      if (!geojsonLayer) return showTip('请先添加 GeoJSON 图层');
+      geojsonLayer.flyTo();
+    }
+
+    function removeGeoJson() {
+      if (!geojsonLayer) return showTip('没有 GeoJSON 图层');
+      map.removeLayer(geojsonLayer);
+      geojsonLayer = null;
+      showTip('GeoJSON 图层已移除');
+    }
+
+    /* ═══════════════════════════════════════
+     *  KML 示例（内联数据，无需服务器）
+     * ═══════════════════════════════════════ */
+
+    /** 构建内联 KML（中国主要城市 + 简单路线） */
+    function buildKmlBlob() {
+      const kml = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>中国主要城市</name>
+    <Style id="cityStyle">
+      <IconStyle>
+        <color>ff0055ff</color>
+        <scale>1.0</scale>
+      </IconStyle>
+      <LabelStyle>
+        <color>ffffffff</color>
+        <scale>0.9</scale>
+      </LabelStyle>
+    </Style>
+    <Style id="routeStyle">
+      <LineStyle>
+        <color>FF00AAFF</color>
+        <width>3</width>
+      </LineStyle>
+    </Style>
+    <Placemark>
+      <name>北京</name>
+      <description>首都，人口约 2189 万</description>
+      <styleUrl>#cityStyle</styleUrl>
+      <Point><coordinates>116.3974,39.9087,0</coordinates></Point>
+    </Placemark>
+    <Placemark>
+      <name>上海</name>
+      <description>直辖市，人口约 2487 万</description>
+      <styleUrl>#cityStyle</styleUrl>
+      <Point><coordinates>121.4737,31.2304,0</coordinates></Point>
+    </Placemark>
+    <Placemark>
+      <name>广州</name>
+      <description>广东省会，人口约 1881 万</description>
+      <styleUrl>#cityStyle</styleUrl>
+      <Point><coordinates>113.2644,23.1291,0</coordinates></Point>
+    </Placemark>
+    <Placemark>
+      <name>成都</name>
+      <description>四川省会，人口约 2094 万</description>
+      <styleUrl>#cityStyle</styleUrl>
+      <Point><coordinates>104.0657,30.5728,0</coordinates></Point>
+    </Placemark>
+    <Placemark>
+      <name>西安</name>
+      <description>陕西省会，十三朝古都</description>
+      <styleUrl>#cityStyle</styleUrl>
+      <Point><coordinates>108.9398,34.3412,0</coordinates></Point>
+    </Placemark>
+    <Placemark>
+      <name>京沪走廊</name>
+      <description>北京 → 上海 示意路线</description>
+      <styleUrl>#routeStyle</styleUrl>
+      <LineString>
+        <coordinates>
+          116.3974,39.9087,0
+          117.2,38.9,0
+          118.5,37.5,0
+          120.3,35.8,0
+          121.4737,31.2304,0
+        </coordinates>
+      </LineString>
+    </Placemark>
+  </Document>
+</kml>`;
+      return new Blob([kml], { type: 'application/vnd.google-earth.kml+xml' });
+    }
+
+    function addKml() {
+      if (kmlLayer) map.removeLayer(kmlLayer);
+
+      kmlLayer = new geoGlobe.KmlLayer({
+        name: 'KML 城市标注',
+        data: buildKmlBlob(),
+        clampToGround: false,
+        onLoad: (ds) => {
+          showTip('KML 加载完成: ' + ds.entities.values.length + ' 个要素 — 已自动飞行定位');
+          kmlLayer.flyTo();
+        }
+      });
+      map.addLayer(kmlLayer);
+      showTip('正在加载 KML 城市标注数据...');
+    }
+
+    function toggleKml() {
+      if (!kmlLayer) return showTip('请先加载 KML 图层');
+      kmlLayer.toggleShow();
+      showTip('KML 图层 ' + (kmlLayer.show ? '已显示' : '已隐藏'));
+    }
+
+    function flyKml() {
+      if (!kmlLayer) return showTip('请先加载 KML 图层');
+      kmlLayer.flyTo();
+    }
+
+    function removeKml() {
+      if (!kmlLayer) return showTip('没有 KML 图层');
+      map.removeLayer(kmlLayer);
+      kmlLayer = null;
+      showTip('KML 图层已移除');
+    }
+
+    /* ═══════════════════════════════════════
+     *  CZML 示例（模拟卫星轨道）
+     * ═══════════════════════════════════════ */
+
+    function addCzml() {
+      if (czmlLayer) map.removeLayer(czmlLayer);
+
+      // 构造一个简单的 CZML 卫星轨道
+      const startTime = '2026-03-01T00:00:00Z';
+      const endTime   = '2026-03-01T06:00:00Z';
+
+      // 生成轨道点（简化的LEO轨道）
+      const cartographicDegrees = [];
+      const totalSeconds = 6 * 3600;
+      const step = 60; // 每分钟一个点
+      for (let t = 0; t <= totalSeconds; t += step) {
+        const lon = -180 + (t / totalSeconds) * 720; // 经度快速变化
+        const lat = 50 * Math.sin((t / totalSeconds) * Math.PI * 6); // 纬度正弦变化
+        const height = 400000 + Math.sin(t / 1000) * 20000; // ~400km轨道高度
+        cartographicDegrees.push(t, ((lon + 180) % 360) - 180, lat, height);
+      }
+
+      const czmlData = [
+        {
+          id: 'document',
+          name: '卫星轨道演示',
+          version: '1.0',
+          clock: {
+            interval: startTime + '/' + endTime,
+            currentTime: startTime,
+            multiplier: 60,
+            range: 'LOOP_STOP',
+            step: 'SYSTEM_CLOCK_MULTIPLIER'
+          }
+        },
+        {
+          id: 'satellite-1',
+          name: 'SAT-001',
+          availability: startTime + '/' + endTime,
+          position: {
+            interpolationAlgorithm: 'LAGRANGE',
+            interpolationDegree: 5,
+            referenceFrame: 'FIXED',
+            epoch: startTime,
+            cartographicDegrees: cartographicDegrees
+          },
+          point: {
+            pixelSize: 8,
+            color: { rgba: [255, 100, 100, 255] },
+            outlineColor: { rgba: [255, 255, 255, 255] },
+            outlineWidth: 2
+          },
+          path: {
+            material: { solidColor: { color: { rgba: [255, 200, 50, 220] } } },
+            width: 2,
+            trailTime: 10800,
+            leadTime: 10800,
+            resolution: 120
+          },
+          label: {
+            text: 'SAT-001',
+            font: '12px sans-serif',
+            fillColor: { rgba: [255, 255, 255, 255] },
+            outlineColor: { rgba: [0, 0, 0, 255] },
+            outlineWidth: 2,
+            pixelOffset: { cartesian2: [10, -10] },
+            style: 'FILL_AND_OUTLINE'
+          }
+        }
+      ];
+
+      czmlLayer = new geoGlobe.CzmlLayer({
+        name: 'CZML 卫星轨道',
+        data: czmlData,
+        onLoad: () => showTip('CZML 卫星轨道已加载 — 使用时间轴控制播放')
+      });
+      map.addLayer(czmlLayer);
+    }
+
+    function toggleCzml() {
+      if (!czmlLayer) return showTip('请先加载 CZML 图层');
+      czmlLayer.toggleShow();
+      showTip('CZML 图层 ' + (czmlLayer.show ? '已显示' : '已隐藏'));
+    }
+
+    function removeCzml() {
+      if (!czmlLayer) return showTip('没有 CZML 图层');
+      map.removeLayer(czmlLayer);
+      czmlLayer = null;
+      showTip('CZML 图层已移除');
+    }
+
+    /* ═══════════════════════════════════════
+     *  图层管理
+     * ═══════════════════════════════════════ */
+    function listLayers() {
+      const layers = map.getLayers();
+      if (layers.length === 0) return showTip('当前没有图层');
+      const names = layers.map((l, i) => (i + 1) + '. ' + l.name + (l.show ? '' : ' [隐藏]'));
+      showTip('图层 (' + layers.length + '): ' + names.join(' | '));
+    }
+
+    function removeAllLayers() {
+      map.removeAllLayers();
+      geojsonLayer = null;
+      kmlLayer = null;
+      czmlLayer = null;
+      showTip('已清除所有图层');
+    }
+
+    /* ═══════════════════════════════════════
+     *  提示
+     * ═══════════════════════════════════════ */
+    let tipTimer;
+    function showTip(text) {
+      const el = document.getElementById('tip');
+      el.textContent = text;
+      el.classList.add('show');
+      clearTimeout(tipTimer);
+      tipTimer = setTimeout(() => el.classList.remove('show'), 5000);
+    }
+
+    showTip('geoGlobe3D 数据图层示例 — 支持 GeoJSON / KML / CZML');
+  </script>
+</body>
+</html>
