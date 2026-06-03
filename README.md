@@ -2,11 +2,7 @@
 
 > 基于 [Cesium](https://cesium.com/) 的三维地图开发框架，提供简洁易用的 API，快速构建 WebGL 三维地球应用。
 
-**版本** v1.3.0 · **协议** Apache-2.0 · **依赖** Cesium（内置）
-
-[![npm](https://img.shields.io/npm/v/geoglobe-3d)](https://www.npmjs.com/package/geoglobe-3d)
-
-**NPM:** <https://www.npmjs.com/package/geoglobe-3d>
+**协议** Apache-2.0 · **依赖** Cesium（内置）
 
 ---
 
@@ -117,8 +113,11 @@
 # 安装依赖
 npm install
 
-# 生产构建
+# 生产构建（每次自动递增 patch 版本号）
 npm run build
+
+# 打包发布版（构建 + 组装 dist/）
+npm run package
 
 # 开发模式（文件监听 + 自动重建）
 npm run dev
@@ -138,12 +137,12 @@ npm start
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <link rel="stylesheet" href="dist/Widgets/widgets.css">
+  <link rel="stylesheet" href="lib/Widgets/widgets.css">
   <style>html, body, #map { margin: 0; width: 100%; height: 100%; }</style>
 </head>
 <body>
   <div id="map"></div>
-  <script src="dist/geoglobe.min.js"></script>
+  <script src="lib/geoglobe.min.js"></script>
   <script>
     // 创建地图
     const map = new geoGlobe.GeoMap('map', {
@@ -173,24 +172,7 @@ npm start
 </html>
 ```
 
-### ESM — 模块化导入
-
-```js
-import { GeoMap, GraphicLayer, PointGraphic, ImageryLayer } from 'geoglobe-3d';
-
-const map = new GeoMap('map', {
-  skyBox: 'space',
-  camera: { position: [116.4, 39.9, 8000000] }
-});
-
-const layer = new GraphicLayer({ id: 'marks' });
-map.addLayer(layer);
-
-layer.addGraphic(new PointGraphic({
-  position: [116.4, 39.9, 0],
-  style: { pixelSize: 12, color: '#ff0000' }
-}));
-```
+> **注意**：当前版本仅提供 UMD 产物（`lib/geoglobe.min.js`），不支持 ESM `import` 语法。请始终通过 `<script>` 标签引入，并使用 `window.geoGlobe` 命名空间访问所有类。
 
 ### Vue 3 + Vite 集成
 
@@ -206,14 +188,14 @@ npm install geoglobe-3d
 
 #### 2. 拷贝静态资源
 
-将 `node_modules/geoglobe-3d/dist/` 整个目录拷贝到 `public/geoglobe/`（包含 JS 产物、Workers、Assets、Widgets、ThirdParty）：
+将 `node_modules/geoglobe-3d/lib/` 整个目录拷贝到 `public/geoglobe/`（包含 JS 产物、Workers、Assets、Widgets、ThirdParty）：
 
 ```bash
 # Linux / macOS
-cp -r node_modules/geoglobe-3d/dist public/geoglobe
+cp -r node_modules/geoglobe-3d/lib public/geoglobe
 
 # Windows (PowerShell)
-Copy-Item -Recurse -Force "node_modules/geoglobe-3d/dist" "public/geoglobe"
+Copy-Item -Recurse -Force "node_modules/geoglobe-3d/lib" "public/geoglobe"
 ```
 
 推荐在 `package.json` 中添加脚本自动执行：
@@ -234,11 +216,11 @@ import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, '..');
-const src = resolve(root, 'node_modules/geoglobe-3d/dist');
+const src = resolve(root, 'node_modules/geoglobe-3d/lib');
 const dest = resolve(root, 'public/geoglobe');
 
 if (!existsSync(src)) {
-  console.error('找不到 node_modules/geoglobe-3d/dist，请先运行 npm install');
+  console.error('找不到 node_modules/geoglobe-3d/lib，请先运行 npm install');
   process.exit(1);
 }
 cpSync(src, dest, { recursive: true });
@@ -260,7 +242,7 @@ console.log('已复制 geoglobe-3d/dist -> public/geoglobe');
   <body>
     <div id="app"></div>
     <!-- 引入 UMD 版本，注册全局 window.geoGlobe -->
-    <script src="/geoglobe/geoglobe.js"></script>
+    <script src="/geoglobe/geoglobe.min.js"></script>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>
@@ -387,7 +369,7 @@ onBeforeUnmount(() => {
 
 ```bash
 npm install
-npm run copy-assets   # 复制 geoglobe-3d/dist -> public/geoglobe
+npm run copy-assets   # 复制 geoglobe-3d/lib -> public/geoglobe
 npm run dev            # 启动 Vite 开发服务器
 ```
 
@@ -396,26 +378,26 @@ npm run dev            # 启动 Vite 开发服务器
 > - 使用 `let` 而非 `ref()` 保存地图实例，避免 Vue 的 reactive proxy 深度代理 Cesium 内部对象导致性能问题。
 > - 组件卸载时务必调用 `destroy()` 释放 WebGL 资源。
 > - `public/geoglobe/` 目录由脚本生成，建议加入 `.gitignore`。
+> - `CESIUM_BASE_URL` 会自动推断为 `/geoglobe/`，无需手动设置。
 
 ---
 
 ## 产物说明
 
+`npm run build` 输出到 `lib/`，`npm run package` 将 `lib/` 整体打包到 `dist/lib/`。
+
 | 文件 | 格式 | Cesium | 适用场景 |
 |------|------|--------|----------|
-| `dist/geoglobe.js` | UMD | 内含 | 浏览器 `<script>` 标签 |
-| `dist/geoglobe.min.js` | UMD (压缩) | 内含 | 生产环境 |
-| `dist/geoglobe.esm.js` | ES Module | 内含 | Webpack / Vite / Rollup |
-| `dist/geoglobe.cjs.js` | CommonJS | 内含 | Node.js / SSR |
-| `dist/index.d.ts` | TypeScript 声明 | — | Vue/React + TS 项目 |
+| `lib/geoglobe.min.js` | UMD (压缩) | 内含 | 浏览器 `<script>` 标签 / 生产环境 |
 
-附属资源（需整体部署）：
+附属资源（与 `geoglobe.min.js` 同目录，需整体部署）：
 
 | 目录 | 说明 |
 |------|------|
-| `dist/Workers/` | Cesium Web Worker 文件 |
-| `dist/Assets/` | 纹理、地形高度等静态资源 |
-| `dist/Widgets/` | UI 组件样式 |
+| `lib/Workers/` | Cesium Web Worker 文件 |
+| `lib/Assets/` | 纹理、地形高度等静态资源 |
+| `lib/Widgets/` | UI 组件样式（`widgets.css`）|
+| `lib/ThirdParty/` | Cesium 第三方依赖 |
 
 > 引用 UMD 版本时，框架自动推断 `CESIUM_BASE_URL`，无需手动设置。
 
@@ -424,12 +406,7 @@ npm run dev            # 启动 Vite 开发服务器
 ## GeoMap — 核心类
 
 ```js
-// UMD
 const map = new geoGlobe.GeoMap(container, options);
-
-// ESM
-import { GeoMap } from 'geoglobe-3d';
-const map = new GeoMap(container, options);
 ```
 
 `container`：DOM 元素或元素 id 字符串。`GeoMap` 同时以 `Map` 别名导出。
@@ -1252,7 +1229,27 @@ CzmlLayer 独有方法：`process(czmlPacket)` — 异步追加/更新 CZML 数�
 | `getStyleJson` | `()` → `object\|null` | 获取已解析的 style JSON |
 | `setShow` | `(show: boolean)` | 同步显隐到 ImageryLayer 和 DataSource |
 
-**事件**：`'load'`（加载完成）、`'error'`（加载失败）
+**事件**
+
+| 事件名 | 触发时机 | 回调参数 |
+|--------|---------|---------|
+| `'load'` | Style JSON 解析完成并完成图层初始化 | `(styleJson)` — 解析后的 style 对象 |
+| `'error'` | 加载或解析失败 | `(err)` — Error 对象 |
+| `'click'` | 地图左键点击（无论是否命中要素） | `(e)` — 见下表 |
+
+`'click'` 事件回调参数 `e`：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `e.features` | `Feature[]` | 命中的 GeoJSON Feature 数组，空白处点击为 `[]` |
+| `e.features[i].geometry` | `GeoJSON Geometry` | 要素几何（`Point` / `LineString` / `Polygon`） |
+| `e.features[i].properties` | `object` | MVT 要素属性 |
+| `e.features[i].layer` | `object` | 命中的 Style Layer 定义（含 `id`、`type`、`paint` 等） |
+| `e.point` | `{x, y}` | 屏幕坐标 |
+| `e.lngLat` | `[lng, lat] \| null` | 对应经纬度，点击椭球体外时为 `null` |
+| `e.cartesian` | `Cesium.Cartesian3 \| null` | 对应三维坐标，点击椭球体外时为 `null` |
+
+> **按图层订阅**：`layer.on('click', 'my-layer-id', handler)` — 仅当命中 id 为 `my-layer-id` 的 Style Layer 时触发，等同于监听内部事件 `'click:my-layer-id'`。
 
 ```js
 // 从 URL 加载（含 vector + geojson + raster + background）
