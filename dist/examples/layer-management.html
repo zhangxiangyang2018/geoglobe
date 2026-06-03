@@ -1,0 +1,339 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>geoGlobe3D 示例 - 图层管理（上移/下移/显隐/删除）</title>
+  <link rel="stylesheet" href="../lib/Widgets/widgets.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; font-family: 'Microsoft YaHei', sans-serif; }
+    #mapContainer { width: 100%; height: 100%; }
+
+    /* ── 侧边图层面板 ── */
+    #panel {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      width: 310px;
+      background: rgba(20, 24, 32, 0.95);
+      border-radius: 8px;
+      padding: 14px;
+      z-index: 1000;
+      color: #ddd;
+      box-shadow: 0 4px 16px rgba(0,0,0,.5);
+      max-height: calc(100% - 20px);
+      overflow-y: auto;
+    }
+
+    #panel h3 {
+      font-size: 14px;
+      color: #4fc3f7;
+      margin-bottom: 10px;
+      border-bottom: 1px solid #333;
+      padding-bottom: 8px;
+    }
+
+    .layer-item {
+      background: #2a2e38;
+      border-radius: 6px;
+      padding: 8px 10px;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: background .2s;
+    }
+
+    .layer-item:hover { background: #34394a; }
+
+    .layer-item .layer-color {
+      width: 14px;
+      height: 14px;
+      border-radius: 3px;
+      flex-shrink: 0;
+    }
+
+    .layer-item .layer-name {
+      flex: 1;
+      font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .layer-item .layer-name.hidden { color: #666; text-decoration: line-through; }
+
+    .layer-item button {
+      background: #3a3f4b;
+      color: #ccc;
+      border: 1px solid rgba(255,255,255,.06);
+      padding: 3px 6px;
+      cursor: pointer;
+      border-radius: 3px;
+      font-size: 11px;
+      transition: background .15s;
+    }
+
+    .layer-item button:hover { background: #4a90d9; color: #fff; }
+    .layer-item button.danger:hover { background: #d32f2f; color: #fff; }
+
+    #addBtns {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+
+    #addBtns button {
+      background: #3a7bd5;
+      color: #fff;
+      border: none;
+      padding: 6px 10px;
+      cursor: pointer;
+      border-radius: 4px;
+      font-size: 11px;
+      transition: background .15s;
+    }
+
+    #addBtns button:hover { background: #5a9be6; }
+    #addBtns button.danger { background: #d32f2f; }
+
+    /* ── 提示 ── */
+    #tip {
+      position: absolute;
+      bottom: 40px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,.78);
+      color: #4fc3f7;
+      font-size: 13px;
+      padding: 6px 18px;
+      border-radius: 4px;
+      pointer-events: none;
+      transition: opacity .3s;
+      opacity: 0;
+      z-index: 1001;
+      white-space: nowrap;
+    }
+
+    #tip.show { opacity: 1; }
+  </style>
+</head>
+<body>
+  <div id="mapContainer"></div>
+
+  <div id="panel">
+    <h3>📂 图层管理</h3>
+
+    <div id="addBtns">
+      <button onclick="addImageryLayerOSM()">+ OSM 影像</button>
+      <button onclick="addImageryLayerColor()">+ 彩色底图</button>
+      <button class="danger" onclick="removeAll()">全部删除</button>
+    </div>
+    <div style="font-size:11px;color:#888;margin-bottom:8px;line-height:1.5;">
+      💡 影像图层(ImageryLayer)之间可互相调整顺序。<br>
+      GeoJSON / 图形图层属于 Entity 渲染管线，始终显示在影像之上，无法与影像层穿插排序。
+    </div>
+
+    <div id="layerList"></div>
+  </div>
+
+  <div id="tip"></div>
+
+  <script src="../lib/geoglobe.min.js"></script>
+  <script>
+    /* ═══════════════════════════════════════════════
+     *  初始化地图
+     * ═══════════════════════════════════════════════ */
+    const map = new geoGlobe.GeoMap('mapContainer', {
+      control: {
+        timeline: false,
+        animation: false,
+        baseLayerPicker: false,
+        homeButton: false,
+        sceneModePicker: false,
+        navigationHelpButton: false,
+        fullscreenButton: false,
+        toolbar: true,
+        navBar: true
+      },
+      camera: {
+        position: [116.39, 39.91, 8000000],
+        heading: 0,
+        pitch: -90,
+        roll: 0
+      }
+    });
+
+    /* ═══════════════════════════════════════════════
+     *  快速添加各类图层
+     * ═══════════════════════════════════════════════ */
+    let layerCount = 0;
+
+    // 预定义颜色，方便面板中显示色块
+    const colorSwatches = ['#4a90d9', '#e67e22', '#2ecc71', '#e74c3c', '#9b59b6', '#1abc9c', '#f39c12', '#3498db'];
+
+    function nextColor() {
+      return colorSwatches[layerCount % colorSwatches.length];
+    }
+
+    function addImageryLayerOSM() {
+      const layer = new geoGlobe.ImageryLayer({
+        name: 'OSM-' + (++layerCount),
+        type: 'osm'
+      });
+      map.addLayer(layer);
+      refreshList();
+      showTip('已添加 OSM 影像图层');
+    }
+
+    function addImageryLayerColor() {
+      const c = nextColor();
+      const layer = new geoGlobe.ImageryLayer({
+        name: '彩色底图-' + (++layerCount),
+        type: 'singleColor',
+        color: c,
+        alpha: 0.45          // 半透明，叠加后能看到下层
+      });
+      layer._color = c;
+      map.addLayer(layer);
+      refreshList();
+      showTip('已添加半透明彩色底图 (' + c + ')');
+    }
+
+
+
+    /* ═══════════════════════════════════════════════
+     *  图层管理操作
+     * ═══════════════════════════════════════════════ */
+
+    /** 上移 */
+    function raiseLayer(id) {
+      const layer = map.getLayer(id);
+      if (!layer) return;
+      map.raiseLayer(layer);
+      refreshList();
+      showTip(`"${layer.name}" 已上移`);
+    }
+
+    /** 下移 */
+    function lowerLayer(id) {
+      const layer = map.getLayer(id);
+      if (!layer) return;
+      map.lowerLayer(layer);
+      refreshList();
+      showTip(`"${layer.name}" 已下移`);
+    }
+
+    /** 置顶 */
+    function toTop(id) {
+      const layer = map.getLayer(id);
+      if (!layer) return;
+      map.raiseLayerToTop(layer);
+      refreshList();
+      showTip(`"${layer.name}" 已置顶`);
+    }
+
+    /** 置底 */
+    function toBottom(id) {
+      const layer = map.getLayer(id);
+      if (!layer) return;
+      map.lowerLayerToBottom(layer);
+      refreshList();
+      showTip(`"${layer.name}" 已置底`);
+    }
+
+    /** 显隐切换 */
+    function toggleVis(id) {
+      map.toggleLayer(id);
+      refreshList();
+      const layer = map.getLayer(id);
+      showTip(`"${layer.name}" ${layer.show ? '已显示' : '已隐藏'}`);
+    }
+
+    /** 删除 */
+    function removeLayerById(id) {
+      const layer = map.getLayer(id);
+      const name = layer ? layer.name : '';
+      map.removeLayerById(id);
+      refreshList();
+      showTip(`已删除 "${name}"`);
+    }
+
+    /** 全部删除 */
+    function removeAll() {
+      map.removeAllLayers();
+      refreshList();
+      showTip('已删除所有图层');
+    }
+
+    /* ═══════════════════════════════════════════════
+     *  渲染图层列表 UI
+     * ═══════════════════════════════════════════════ */
+    function refreshList() {
+      const list = document.getElementById('layerList');
+      const layers = map.getLayers();
+
+      if (layers.length === 0) {
+        list.innerHTML = '<div style="text-align:center;color:#666;font-size:12px;padding:20px 0;">暂无图层，请添加</div>';
+        return;
+      }
+
+      // 从顶到底显示（数组末尾 = 最顶层）
+      let html = '';
+      for (let i = layers.length - 1; i >= 0; i--) {
+        const l = layers[i];
+        const c = l._color || '#888';
+        const nameClass = l.show ? 'layer-name' : 'layer-name hidden';
+        const eyeIcon = l.show ? '👁' : '🚫';
+        html += `
+          <div class="layer-item">
+            <span class="layer-color" style="background:${c}"></span>
+            <span class="${nameClass}" title="${l.name} (idx: ${i})">${l.name}</span>
+            <button title="上移"  onclick="raiseLayer('${l.id}')">▲</button>
+            <button title="下移"  onclick="lowerLayer('${l.id}')">▼</button>
+            <button title="置顶"  onclick="toTop('${l.id}')">⤒</button>
+            <button title="置底"  onclick="toBottom('${l.id}')">⤓</button>
+            <button title="显隐"  onclick="toggleVis('${l.id}')">${eyeIcon}</button>
+            <button title="删除" class="danger" onclick="removeLayerById('${l.id}')">✕</button>
+          </div>`;
+      }
+      list.innerHTML = html;
+    }
+
+    /* ═══════════════════════════════════════════════
+     *  工具函数
+     * ═══════════════════════════════════════════════ */
+    let tipTimer = null;
+    function showTip(text) {
+      const el = document.getElementById('tip');
+      el.textContent = text;
+      el.classList.add('show');
+      clearTimeout(tipTimer);
+      tipTimer = setTimeout(() => el.classList.remove('show'), 3000);
+    }
+
+    // 初始添加 3 个半透明彩色影像图层，颜色对比鲜明
+    // 叠加后 = 混色效果，上移/下移/置顶/置底能明显看到颜色变化
+    const initColors = [
+      { name: '红色底图',  color: '#e74c3c', swatch: '#e74c3c' },
+      { name: '蓝色底图',  color: '#2980b9', swatch: '#2980b9' },
+      { name: '绿色底图',  color: '#27ae60', swatch: '#27ae60' }
+    ];
+    initColors.forEach((cfg) => {
+      const layer = new geoGlobe.ImageryLayer({
+        name: cfg.name + '-' + (++layerCount),
+        type: 'singleColor',
+        color: cfg.color,
+        alpha: 0.5            // 半透明 → 图层叠加有混色
+      });
+      layer._color = cfg.swatch;
+      map.addLayer(layer);
+    });
+    refreshList();
+
+    showTip('已添加 3 个半透明图层 — 试试 ▲▼ 或置顶置底，观察颜色变化');
+  </script>
+</body>
+</html>

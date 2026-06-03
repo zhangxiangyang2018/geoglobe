@@ -1,0 +1,264 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>geoGlobe3D 示例 - Popup 弹窗与 Tooltip 提示</title>
+  <link rel="stylesheet" href="../lib/Widgets/widgets.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body, #mapContainer { width: 100%; height: 100%; overflow: hidden; font-family: 'Microsoft YaHei', sans-serif; }
+
+    #toolbar {
+      position: absolute; top: 10px; left: 10px; z-index: 1000;
+      display: flex; gap: 6px; flex-wrap: wrap; max-width: 650px;
+    }
+
+    .bar-group {
+      background: rgba(20, 26, 36, 0.94);
+      border-radius: 6px; padding: 6px 10px; display: flex; align-items: center; gap: 4px;
+      box-shadow: 0 2px 10px rgba(0,0,0,.4);
+    }
+
+    .bar-group .label { font-size: 11px; color: #888; margin-right: 4px; white-space: nowrap; }
+    .bar-group button {
+      background: #3a3f4b; color: #ddd; border: 1px solid rgba(255,255,255,.06);
+      padding: 5px 10px; cursor: pointer; border-radius: 4px; font-size: 12px;
+      white-space: nowrap; transition: background .15s;
+    }
+    .bar-group button:hover { background: #4a90d9; color: #fff; }
+    .bar-group button.danger { color: #f06; }
+    .bar-group button.danger:hover { background: #d32f2f; color: #fff; }
+
+    #tip {
+      position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%);
+      background: rgba(0,0,0,.78); color: #4fc3f7; font-size: 13px; padding: 6px 18px;
+      border-radius: 4px; pointer-events: none; transition: opacity .3s; opacity: 0;
+      z-index: 1001; white-space: nowrap;
+    }
+    #tip.show { opacity: 1; }
+  </style>
+</head>
+<body>
+  <div id="mapContainer"></div>
+
+  <div id="toolbar">
+    <div class="bar-group">
+      <span class="label">💬 Popup</span>
+      <button onclick="showPopupBeijing()">弹窗(北京)</button>
+      <button onclick="showPopupShanghai()">弹窗(上海)</button>
+      <button onclick="showPopupCustom()">自定义弹窗</button>
+      <button onclick="popup.hide()">关闭弹窗</button>
+    </div>
+
+    <div class="bar-group">
+      <span class="label">🏷️ Tooltip</span>
+      <button onclick="addTooltipPoints()">添加带提示的点</button>
+      <button class="danger" onclick="graphicLayer.clear()">清除图形</button>
+    </div>
+
+    <div class="bar-group">
+      <span class="label">🖱️ 事件</span>
+      <button onclick="toggleClickEvent()">左键事件</button>
+      <button onclick="toggleMoveEvent()">移动事件</button>
+    </div>
+  </div>
+
+  <div id="tip"></div>
+
+  <script src="../lib/geoglobe.min.js"></script>
+  <script>
+    /* ═══════════════════════════════════════
+     *  初始化
+     * ═══════════════════════════════════════ */
+    const map = new geoGlobe.GeoMap('mapContainer', {
+      control: {
+        timeline: false, animation: false, baseLayerPicker: false,
+        homeButton: false, sceneModePicker: false,
+        navigationHelpButton: false, fullscreenButton: false,
+        toolbar: true, navBar: true
+      },
+      camera: { position: [110, 35, 5000000], heading: 0, pitch: -90, roll: 0 }
+    });
+
+    /* ═══════════════════════════════════════
+     *  创建 Popup + Tooltip + EventManager
+     * ═══════════════════════════════════════ */
+    const popup = new geoGlobe.PopupManager(map, {
+      auto: false,          // 手动控制
+      closeButton: true,
+      followCamera: true    // 相机移动时弹窗跟随
+    });
+
+    const tooltip = new geoGlobe.TooltipManager(map);
+
+    const eventManager = new geoGlobe.EventManager(map);
+
+    // 图形图层（用于展示 Tooltip）
+    const graphicLayer = new geoGlobe.GraphicLayer({ name: '标注图层' });
+    map.addLayer(graphicLayer);
+
+    /* ═══════════════════════════════════════
+     *  Popup 弹窗演示
+     * ═══════════════════════════════════════ */
+
+    function showPopupBeijing() {
+      popup.show(
+        '<div style="min-width:150px">' +
+        '<h4 style="margin:0 0 6px;color:#333">🏛️ 北京</h4>' +
+        '<p style="margin:0;font-size:12px;color:#555">首都 · 人口 2189 万</p>' +
+        '<p style="margin:4px 0 0;font-size:11px;color:#999">坐标: 116.397°E, 39.908°N</p>' +
+        '</div>',
+        [116.397, 39.908, 0]
+      );
+      showTip('Popup 弹窗已显示 (北京)');
+    }
+
+    function showPopupShanghai() {
+      popup.show(
+        '<div style="min-width:150px">' +
+        '<h4 style="margin:0 0 6px;color:#333">🏙️ 上海</h4>' +
+        '<p style="margin:0;font-size:12px;color:#555">直辖市 · 人口 2487 万</p>' +
+        '<p style="margin:4px 0 0;font-size:11px;color:#999">坐标: 121.473°E, 31.230°N</p>' +
+        '</div>',
+        [121.473, 31.230, 0]
+      );
+      showTip('Popup 弹窗已显示 (上海)');
+    }
+
+    function showPopupCustom() {
+      popup.show(
+        '<div style="min-width:200px">' +
+        '<h4 style="margin:0 0 8px;color:#1a73e8">📊 自定义弹窗</h4>' +
+        '<table style="font-size:11px;width:100%;border-collapse:collapse">' +
+        '<tr><td style="padding:3px;color:#666">名称</td><td style="padding:3px">测试站点</td></tr>' +
+        '<tr><td style="padding:3px;color:#666">状态</td><td style="padding:3px;color:green">● 在线</td></tr>' +
+        '<tr><td style="padding:3px;color:#666">温度</td><td style="padding:3px">23.5 ℃</td></tr>' +
+        '<tr><td style="padding:3px;color:#666">湿度</td><td style="padding:3px">68%</td></tr>' +
+        '</table>' +
+        '<button style="margin-top:8px;padding:4px 12px;border:none;background:#1a73e8;color:#fff;border-radius:3px;cursor:pointer;font-size:11px" ' +
+        'onclick="alert(\'按钮被点击！\')">查看详情</button>' +
+        '</div>',
+        [112, 34, 0]
+      );
+      showTip('自定义 Popup 已显示 — 弹窗中含有可交互按钮');
+    }
+
+    /* ═══════════════════════════════════════
+     *  Tooltip 悬停提示演示
+     * ═══════════════════════════════════════ */
+
+    const cities = [
+      { name: '北京', lon: 116.397, lat: 39.908, info: '首都 · 2189万人口' },
+      { name: '上海', lon: 121.473, lat: 31.230, info: '直辖市 · 2487万人口' },
+      { name: '广州', lon: 113.264, lat: 23.129, info: '广东省会 · 1881万人口' },
+      { name: '深圳', lon: 114.057, lat: 22.543, info: '经济特区 · 1756万人口' },
+      { name: '成都', lon: 104.066, lat: 30.572, info: '四川省会 · 2094万人口' },
+      { name: '武汉', lon: 114.298, lat: 30.584, info: '湖北省会 · 1245万人口' },
+      { name: '杭州', lon: 120.153, lat: 30.287, info: '浙江省会 · 1237万人口' },
+      { name: '西安', lon: 108.940, lat: 34.341, info: '陕西省会 · 1295万人口' },
+      { name: '重庆', lon: 106.504, lat: 29.533, info: '直辖市 · 3212万人口' },
+      { name: '南京', lon: 118.767, lat: 32.041, info: '江苏省会 · 942万人口' },
+    ];
+
+    function addTooltipPoints() {
+      graphicLayer.clear();
+
+      cities.forEach(city => {
+        // 点图形 — 设置 tooltip 属性后 TooltipManager 自动识别
+        const pt = new geoGlobe.PointGraphic({
+          position: [city.lon, city.lat, 0],
+          style: { pixelSize: 10, color: '#e74c3c', outlineColor: '#fff', outlineWidth: 2 },
+          tooltip: '<b>' + city.name + '</b><br>' + city.info,
+          popup: '<h4>' + city.name + '</h4><p>' + city.info + '</p>',
+          attr: { city: city.name }
+        });
+
+        // 文字标注
+        const lb = new geoGlobe.LabelGraphic({
+          position: [city.lon, city.lat, 0],
+          style: {
+            text: city.name,
+            font: '13px sans-serif',
+            fillColor: '#ffffff',
+            outlineColor: '#000',
+            outlineWidth: 2,
+            style: 'fillAndOutline',
+            pixelOffset: [0, -18]
+          }
+        });
+
+        graphicLayer.addGraphic(pt);
+        graphicLayer.addGraphic(lb);
+      });
+
+      showTip('已添加 ' + cities.length + ' 个城市标注 — 悬停查看 Tooltip，点击可显示 Popup');
+    }
+
+    /* ═══════════════════════════════════════
+     *  EventManager 演示
+     * ═══════════════════════════════════════ */
+
+    let clickBound = false;
+    let moveBound = false;
+
+    function toggleClickEvent() {
+      if (!clickBound) {
+        eventManager.on('leftClick', onLeftClick);
+        clickBound = true;
+        showTip('左键点击事件已绑定 — 点击地图查看坐标');
+      } else {
+        eventManager.off('leftClick', onLeftClick);
+        clickBound = false;
+        showTip('左键点击事件已移除');
+      }
+    }
+
+    function onLeftClick(e) {
+      if (e.lonlat) {
+        const [lng, lat, h] = e.lonlat;
+        // 如果点击了带 popup 的图形，自动弹出
+        if (e.entity && e.entity._popup) {
+          popup.show(e.entity._popup, e.cartesian);
+        } else {
+          showTip('点击坐标: [' + lng.toFixed(4) + ', ' + lat.toFixed(4) + '] 高度: ' + h.toFixed(1) + 'm');
+        }
+      }
+    }
+
+    function toggleMoveEvent() {
+      if (!moveBound) {
+        eventManager.on('mouseMove', onMouseMove);
+        moveBound = true;
+        showTip('鼠标移动事件已绑定 — 移动鼠标查看实时坐标');
+      } else {
+        eventManager.off('mouseMove', onMouseMove);
+        moveBound = false;
+        showTip('鼠标移动事件已移除');
+      }
+    }
+
+    function onMouseMove(e) {
+      if (e.lonlat) {
+        document.title = 'Lng: ' + e.lonlat[0].toFixed(4) + '  Lat: ' + e.lonlat[1].toFixed(4);
+      }
+    }
+
+    /* ═══════════════════════════════════════
+     *  提示
+     * ═══════════════════════════════════════ */
+    let tipTimer;
+    function showTip(text) {
+      const el = document.getElementById('tip');
+      el.textContent = text;
+      el.classList.add('show');
+      clearTimeout(tipTimer);
+      tipTimer = setTimeout(() => el.classList.remove('show'), 5000);
+    }
+
+    // 初始加载城市标注
+    addTooltipPoints();
+    showTip('geoGlobe3D Popup/Tooltip 示例已就绪 — 悬停城市点查看提示');
+  </script>
+</body>
+</html>

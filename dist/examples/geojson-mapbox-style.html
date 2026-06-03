@@ -1,0 +1,482 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>geoGlobe3D - GeoJSON + Mapbox Style</title>
+  <link rel="stylesheet" href="../lib/Widgets/widgets.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body, #mapContainer { width: 100%; height: 100%; overflow: hidden; font-family: 'Microsoft YaHei', sans-serif; }
+
+    #toolbar {
+      position: absolute; top: 10px; left: 10px; z-index: 1000;
+      display: flex; gap: 6px; flex-wrap: wrap; max-width: 900px;
+    }
+    .bar-group {
+      background: rgba(20, 26, 36, 0.94);
+      border-radius: 6px; padding: 6px 10px; display: flex; align-items: center; gap: 4px;
+      box-shadow: 0 2px 10px rgba(0,0,0,.4);
+    }
+    .bar-group .label { font-size: 11px; color: #888; margin-right: 4px; white-space: nowrap; }
+    .bar-group button {
+      background: #3a3f4b; color: #ddd; border: 1px solid rgba(255,255,255,.06);
+      padding: 5px 10px; cursor: pointer; border-radius: 4px; font-size: 12px;
+      white-space: nowrap; transition: background .15s;
+    }
+    .bar-group button:hover { background: #4a90d9; color: #fff; }
+    .bar-group button.danger { color: #f06; }
+    .bar-group button.danger:hover { background: #d32f2f; color: #fff; }
+
+    #tip {
+      position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%);
+      background: rgba(0,0,0,.78); color: #4fc3f7; font-size: 13px; padding: 6px 18px;
+      border-radius: 4px; pointer-events: none; transition: opacity .3s; opacity: 0;
+      z-index: 1001; white-space: nowrap;
+    }
+    #tip.show { opacity: 1; }
+
+    #legend {
+      position: absolute; bottom: 50px; right: 10px; z-index: 1000;
+      background: rgba(20, 26, 36, 0.92); border-radius: 6px; padding: 10px 14px;
+      box-shadow: 0 2px 10px rgba(0,0,0,.4); font-size: 12px; color: #ccc;
+      display: none;
+    }
+    #legend.show { display: block; }
+    #legend h4 { font-size: 13px; color: #fff; margin-bottom: 6px; }
+    .legend-item { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
+    .legend-color { width: 14px; height: 14px; border-radius: 3px; border: 1px solid rgba(255,255,255,.2); }
+  </style>
+</head>
+<body>
+  <div id="mapContainer"></div>
+
+  <div id="toolbar">
+    <div class="bar-group">
+      <span class="label">Fill</span>
+      <button onclick="addProvinceFill()">Province Color</button>
+      <button onclick="addProvinceExtrusion()">Extrusion</button>
+      <button onclick="toggleLayer('province')">Toggle</button>
+      <button class="danger" onclick="removeLayer('province')">Remove</button>
+    </div>
+    <div class="bar-group">
+      <span class="label">Line</span>
+      <button onclick="addRoads()">Roads</button>
+      <button onclick="addRoadsDash()">Dash Roads</button>
+      <button onclick="toggleLayer('roads')">Toggle</button>
+      <button class="danger" onclick="removeLayer('roads')">Remove</button>
+    </div>
+    <div class="bar-group">
+      <span class="label">Circle</span>
+      <button onclick="addCities()">Cities</button>
+      <button onclick="toggleLayer('cities')">Toggle</button>
+      <button class="danger" onclick="removeLayer('cities')">Remove</button>
+    </div>
+    <div class="bar-group">
+      <span class="label">Multi</span>
+      <button onclick="addMultiStyle()">Fill+Line+Circle</button>
+      <button onclick="addFilterDemo()">Filter</button>
+      <button class="danger" onclick="removeAllLayers()">Clear All</button>
+    </div>
+  </div>
+
+  <div id="tip"></div>
+  <div id="legend"></div>
+
+  <script src="../lib/geoglobe.min.js"></script>
+  <script>
+    var JulianDate = geoGlobe.JulianDate;
+
+    var map = new geoGlobe.GeoMap('mapContainer', {
+      control: {
+        timeline: false, animation: false, baseLayerPicker: false,
+        homeButton: false, sceneModePicker: false,
+        navigationHelpButton: false, fullscreenButton: false,
+        toolbar: false, navBar: true
+      },
+      camera: { position: [105, 35, 5000000], heading: 0, pitch: -90, roll: 0 }
+    });
+
+    var layers = {};
+
+    /* ---- Data generators ---- */
+
+    function makeProvinceData() {
+      var provinces = [
+        { name: 'Beijing',   center: [116.4, 39.9], type: 'municipality', population: 2154 },
+        { name: 'Shanghai',  center: [121.5, 31.2], type: 'municipality', population: 2487 },
+        { name: 'Guangdong', center: [113.3, 23.1], type: 'economic',     population: 12601 },
+        { name: 'Zhejiang',  center: [120.2, 30.3], type: 'economic',     population: 6457 },
+        { name: 'Jiangsu',   center: [118.8, 32.1], type: 'economic',     population: 8475 },
+        { name: 'Sichuan',   center: [104.1, 30.6], type: 'western',      population: 8367 },
+        { name: 'Hubei',     center: [114.3, 30.6], type: 'central',      population: 5775 },
+        { name: 'Henan',     center: [113.7, 34.8], type: 'central',      population: 9883 },
+        { name: 'Shandong',  center: [117.0, 36.7], type: 'economic',     population: 10153 },
+        { name: 'Shaanxi',   center: [108.9, 34.3], type: 'western',      population: 3953 },
+        { name: 'Yunnan',    center: [102.7, 25.0], type: 'western',      population: 4721 },
+        { name: 'Liaoning',  center: [123.4, 41.8], type: 'northeast',    population: 4259 },
+      ];
+      return {
+        type: 'FeatureCollection',
+        features: provinces.map(function(p) {
+          var cx = p.center[0], cy = p.center[1];
+          var r = 1.5 + Math.random();
+          var coords = [];
+          for (var j = 0; j <= 6; j++) {
+            var a = (Math.PI * 2 / 6) * (j % 6);
+            coords.push([cx + Math.cos(a) * r * (0.8 + Math.random() * 0.4),
+                          cy + Math.sin(a) * r * (0.7 + Math.random() * 0.3)]);
+          }
+          return {
+            type: 'Feature',
+            properties: { name: p.name, type: p.type, population: p.population },
+            geometry: { type: 'Polygon', coordinates: [coords] }
+          };
+        })
+      };
+    }
+
+    function makeRoadData() {
+      var roads = [
+        { name: 'Beijing-Shanghai', level: 'highway',   points: [[116.4,39.9],[117.2,38.5],[117.0,36.7],[118.8,32.1],[121.5,31.2]] },
+        { name: 'Beijing-Guangzhou', level: 'highway',  points: [[116.4,39.9],[114.5,38.0],[113.7,34.8],[114.3,30.6],[113.3,23.1]] },
+        { name: 'Shanghai-Chengdu', level: 'trunk',     points: [[121.5,31.2],[118.8,32.1],[117.3,31.8],[114.3,30.6],[108.9,30.5],[104.1,30.6]] },
+        { name: 'Xian-Chengdu',    level: 'trunk',     points: [[108.9,34.3],[107.0,33.1],[105.7,31.5],[104.1,30.6]] },
+        { name: 'Kunming Branch',   level: 'secondary', points: [[104.1,30.6],[103.8,28.5],[102.7,25.0]] },
+        { name: 'Northeast Line',   level: 'secondary', points: [[116.4,39.9],[119.0,41.0],[121.5,42.0],[123.4,41.8]] },
+      ];
+      return {
+        type: 'FeatureCollection',
+        features: roads.map(function(r) {
+          return {
+            type: 'Feature',
+            properties: { name: r.name, level: r.level },
+            geometry: { type: 'LineString', coordinates: r.points }
+          };
+        })
+      };
+    }
+
+    function makeCityData() {
+      var cities = [
+        { name: 'Beijing',   coords: [116.4, 39.9], population: 2154, category: 'capital' },
+        { name: 'Shanghai',  coords: [121.5, 31.2], population: 2487, category: 'tier1' },
+        { name: 'Guangzhou', coords: [113.3, 23.1], population: 1868, category: 'tier1' },
+        { name: 'Shenzhen',  coords: [114.1, 22.5], population: 1756, category: 'tier1' },
+        { name: 'Chengdu',   coords: [104.1, 30.6], population: 2094, category: 'new-tier1' },
+        { name: 'Wuhan',     coords: [114.3, 30.6], population: 1232, category: 'new-tier1' },
+        { name: 'Hangzhou',  coords: [120.2, 30.3], population: 1194, category: 'new-tier1' },
+        { name: 'Nanjing',   coords: [118.8, 32.1], population: 931,  category: 'new-tier1' },
+        { name: 'Chongqing', coords: [106.5, 29.6], population: 3205, category: 'tier1' },
+        { name: 'Xian',      coords: [108.9, 34.3], population: 1295, category: 'new-tier1' },
+        { name: 'Kunming',   coords: [102.7, 25.0], population: 846,  category: 'tier2' },
+        { name: 'Shenyang',  coords: [123.4, 41.8], population: 911,  category: 'tier2' },
+        { name: 'Changsha',  coords: [113.0, 28.2], population: 1005, category: 'new-tier1' },
+        { name: 'Zhengzhou', coords: [113.7, 34.8], population: 1260, category: 'new-tier1' },
+        { name: 'Jinan',     coords: [117.0, 36.7], population: 920,  category: 'tier2' },
+        { name: 'Dalian',    coords: [121.6, 38.9], population: 745,  category: 'tier2' },
+        { name: 'Qingdao',   coords: [120.4, 36.1], population: 1007, category: 'tier2' },
+        { name: 'Xiamen',    coords: [118.1, 24.5], population: 528,  category: 'tier2' },
+        { name: 'Guiyang',   coords: [106.7, 26.6], population: 599,  category: 'tier3' },
+        { name: 'Lhasa',     coords: [91.1, 29.7],  population: 87,   category: 'tier3' },
+        { name: 'Urumqi',    coords: [87.6, 43.8],  population: 405,  category: 'tier3' },
+        { name: 'Harbin',    coords: [126.6, 45.8], population: 1001, category: 'tier2' },
+      ];
+      return {
+        type: 'FeatureCollection',
+        features: cities.map(function(c) {
+          return {
+            type: 'Feature',
+            properties: { name: c.name, population: c.population, category: c.category },
+            geometry: { type: 'Point', coordinates: c.coords }
+          };
+        })
+      };
+    }
+
+    /* ---- Fill demos ---- */
+
+    function addProvinceFill() {
+      removeLayer('province');
+      layers.province = new geoGlobe.GeoJsonLayer({
+        name: 'Province Fill',
+        data: makeProvinceData(),
+        clampToGround: true,
+        mapboxStyle: {
+          type: 'fill',
+          paint: {
+            'fill-color': ['match', ['get', 'type'],
+              'municipality', '#e74c3c',
+              'economic',     '#2ecc71',
+              'central',      '#f39c12',
+              'western',      '#9b59b6',
+              'northeast',    '#3498db',
+              '#95a5a6'
+            ],
+            'fill-opacity': 0.55,
+            'fill-outline-color': '#ffffff',
+          }
+        },
+        onClick: function(entity) {
+          var p = entity.properties.getValue(JulianDate.now());
+          showTip(p.name + ' | type: ' + p.type + ' | pop: ' + p.population + 'w');
+        },
+        onLoad: function(ds) { showTip('Province loaded: ' + ds.entities.values.length); }
+      });
+      map.addLayer(layers.province);
+      showLegend('Province Type', [
+        { color: '#e74c3c', label: 'Municipality' },
+        { color: '#2ecc71', label: 'Economic' },
+        { color: '#f39c12', label: 'Central' },
+        { color: '#9b59b6', label: 'Western' },
+        { color: '#3498db', label: 'Northeast' },
+      ]);
+    }
+
+    function addProvinceExtrusion() {
+      removeLayer('province');
+      layers.province = new geoGlobe.GeoJsonLayer({
+        name: 'Province Extrusion',
+        data: makeProvinceData(),
+        clampToGround: false,
+        mapboxStyle: {
+          type: 'fill-extrusion',
+          paint: {
+            'fill-color': ['match', ['get', 'type'],
+              'municipality', '#e74c3c',
+              'economic',     '#2ecc71',
+              'central',      '#f39c12',
+              'western',      '#9b59b6',
+              'northeast',    '#3498db',
+              '#95a5a6'
+            ],
+            'fill-opacity': 0.75,
+            'fill-outline-color': '#fff',
+            'fill-extrusion-height': ['step', ['get', 'population'],
+              50000,
+              3000, 100000,
+              5000, 200000,
+              8000, 400000,
+              10000, 600000,
+            ],
+          }
+        },
+        onClick: function(entity) {
+          var p = entity.properties.getValue(JulianDate.now());
+          showTip(p.name + ' | pop: ' + p.population + 'w');
+        },
+        onLoad: function() { showTip('Extrusion layer loaded'); }
+      });
+      map.addLayer(layers.province);
+      hideLegend();
+    }
+
+    /* ---- Line demos ---- */
+
+    function addRoads() {
+      removeLayer('roads');
+      layers.roads = new geoGlobe.GeoJsonLayer({
+        name: 'Roads',
+        data: makeRoadData(),
+        clampToGround: true,
+        mapboxStyle: {
+          type: 'line',
+          paint: {
+            'line-color': ['match', ['get', 'level'],
+              'highway',   '#e74c3c',
+              'trunk',     '#f39c12',
+              'secondary', '#3498db',
+              '#999'
+            ],
+            'line-width': ['match', ['get', 'level'],
+              'highway', 4,
+              'trunk',   3,
+              'secondary', 2,
+              1
+            ],
+            'line-opacity': 0.9,
+          }
+        },
+        onClick: function(entity) {
+          var p = entity.properties.getValue(JulianDate.now());
+          showTip(p.name + ' (' + p.level + ')');
+        },
+        onLoad: function() { showTip('Roads loaded'); }
+      });
+      map.addLayer(layers.roads);
+      showLegend('Road Level', [
+        { color: '#e74c3c', label: 'Highway' },
+        { color: '#f39c12', label: 'Trunk' },
+        { color: '#3498db', label: 'Secondary' },
+      ]);
+    }
+
+    function addRoadsDash() {
+      removeLayer('roads');
+      layers.roads = new geoGlobe.GeoJsonLayer({
+        name: 'Dash Roads',
+        data: makeRoadData(),
+        clampToGround: true,
+        mapboxStyle: {
+          type: 'line',
+          paint: {
+            'line-color': '#4fc3f7',
+            'line-width': 2,
+            'line-dasharray': [8, 4],
+            'line-opacity': 0.85,
+          }
+        },
+        onLoad: function() { showTip('Dash roads loaded'); }
+      });
+      map.addLayer(layers.roads);
+      hideLegend();
+    }
+
+    /* ---- Circle demos ---- */
+
+    function addCities() {
+      removeLayer('cities');
+      layers.cities = new geoGlobe.GeoJsonLayer({
+        name: 'Cities by population',
+        data: makeCityData(),
+        clampToGround: false,
+        mapboxStyle: {
+          type: 'circle',
+          paint: {
+            'circle-color': ['step', ['get', 'population'],
+              '#3498db',
+              500, '#2ecc71',
+              1000, '#f39c12',
+              2000, '#e74c3c',
+            ],
+            'circle-radius': ['step', ['get', 'population'],
+              4,
+              500, 6,
+              1000, 9,
+              2000, 12,
+            ],
+            'circle-opacity': 0.85,
+            'circle-stroke-color': '#fff',
+            'circle-stroke-width': 2,
+          }
+        },
+        onClick: function(entity) {
+          var p = entity.properties.getValue(JulianDate.now());
+          showTip(p.name + ' | pop: ' + p.population + 'w | ' + p.category);
+        },
+        onLoad: function(ds) { showTip('Cities loaded: ' + ds.entities.values.length); }
+      });
+      map.addLayer(layers.cities);
+      showLegend('Population (w)', [
+        { color: '#e74c3c', label: '>= 2000' },
+        { color: '#f39c12', label: '1000 - 2000' },
+        { color: '#2ecc71', label: '500 - 1000' },
+        { color: '#3498db', label: '< 500' },
+      ]);
+    }
+
+    /* ---- Multi-style demos ---- */
+
+    function addMultiStyle() {
+      removeAllLayers();
+      var combined = {
+        type: 'FeatureCollection',
+        features: [].concat(
+          makeProvinceData().features,
+          makeRoadData().features,
+          makeCityData().features
+        )
+      };
+      layers.multi = new geoGlobe.GeoJsonLayer({
+        name: 'Multi Style',
+        data: combined,
+        clampToGround: true,
+        mapboxStyle: [
+          { type: 'fill', paint: { 'fill-color': 'rgba(100,149,237,0.3)', 'fill-outline-color': '#6495ED' } },
+          { type: 'line', paint: { 'line-color': '#FFD700', 'line-width': 3, 'line-opacity': 0.8 } },
+          { type: 'circle', paint: { 'circle-color': '#e74c3c', 'circle-radius': 7, 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 } },
+        ],
+        onClick: function(entity) {
+          var p = entity.properties.getValue(JulianDate.now());
+          showTip(p.name);
+        },
+        onLoad: function(ds) { showTip('Multi layer: ' + ds.entities.values.length + ' features'); }
+      });
+      map.addLayer(layers.multi);
+      hideLegend();
+    }
+
+    function addFilterDemo() {
+      removeAllLayers();
+      layers.filter = new geoGlobe.GeoJsonLayer({
+        name: 'Filter Demo',
+        data: makeCityData(),
+        clampToGround: false,
+        mapboxStyle: [
+          { type: 'circle', filter: ['==', ['get', 'category'], 'capital'],
+            paint: { 'circle-color': '#e74c3c', 'circle-radius': 14, 'circle-stroke-color': '#FFD700', 'circle-stroke-width': 3 } },
+          { type: 'circle', filter: ['==', ['get', 'category'], 'tier1'],
+            paint: { 'circle-color': '#f39c12', 'circle-radius': 10, 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 } },
+          { type: 'circle', filter: ['==', ['get', 'category'], 'new-tier1'],
+            paint: { 'circle-color': '#2ecc71', 'circle-radius': 7, 'circle-stroke-color': '#fff', 'circle-stroke-width': 1 } },
+          { type: 'circle', filter: ['any', ['==', ['get', 'category'], 'tier2'], ['==', ['get', 'category'], 'tier3']],
+            paint: { 'circle-color': '#3498db', 'circle-radius': 5, 'circle-stroke-color': '#fff', 'circle-stroke-width': 1 } },
+        ],
+        onClick: function(entity) {
+          var p = entity.properties.getValue(JulianDate.now());
+          showTip(p.name + ' | ' + p.category + ' | pop: ' + p.population + 'w');
+        },
+        onLoad: function() { showTip('Filter layer loaded'); }
+      });
+      map.addLayer(layers.filter);
+      showLegend('City Tier (filter)', [
+        { color: '#e74c3c', label: 'Capital' },
+        { color: '#f39c12', label: 'Tier 1' },
+        { color: '#2ecc71', label: 'New Tier 1' },
+        { color: '#3498db', label: 'Tier 2/3' },
+      ]);
+    }
+
+    /* ---- Layer management ---- */
+
+    function toggleLayer(key) {
+      if (!layers[key]) return showTip('Add layer first');
+      layers[key].toggleShow();
+      showTip(layers[key].name + (layers[key].show ? ' visible' : ' hidden'));
+    }
+
+    function removeLayer(key) {
+      if (!layers[key]) return;
+      map.removeLayer(layers[key]);
+      delete layers[key];
+    }
+
+    function removeAllLayers() {
+      Object.keys(layers).forEach(function(k) { removeLayer(k); });
+      hideLegend();
+      showTip('All layers cleared');
+    }
+
+    /* ---- UI helpers ---- */
+
+    var tipTimer;
+    function showTip(msg) {
+      var el = document.getElementById('tip');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(tipTimer);
+      tipTimer = setTimeout(function() { el.classList.remove('show'); }, 3000);
+    }
+
+    function showLegend(title, items) {
+      var el = document.getElementById('legend');
+      el.innerHTML = '<h4>' + title + '</h4>' + items.map(function(i) {
+        return '<div class="legend-item"><div class="legend-color" style="background:' + i.color + '"></div>' + i.label + '</div>';
+      }).join('');
+      el.classList.add('show');
+    }
+
+    function hideLegend() { document.getElementById('legend').classList.remove('show'); }
+  </script>
+</body>
+</html>

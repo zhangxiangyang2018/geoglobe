@@ -1,0 +1,368 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>geoGlobe3D 示例 - 影像图层（ImageryLayer 类型与滤镜）</title>
+  <link rel="stylesheet" href="../lib/Widgets/widgets.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body, #mapContainer { width: 100%; height: 100%; overflow: hidden; font-family: 'Microsoft YaHei', sans-serif; }
+
+    #panel {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 1000;
+      width: 280px;
+      background: rgba(20, 24, 32, 0.95);
+      border-radius: 8px;
+      padding: 14px;
+      color: #ddd;
+      box-shadow: 0 4px 16px rgba(0,0,0,.5);
+    }
+
+    #panel h3 {
+      color: #4fc3f7;
+      font-size: 14px;
+      margin-bottom: 12px;
+      border-bottom: 1px solid #333;
+      padding-bottom: 8px;
+    }
+
+    .section { margin-bottom: 13px; }
+
+    .section-title {
+      font-size: 11px;
+      color: #888;
+      margin-bottom: 5px;
+      text-transform: uppercase;
+      letter-spacing: .4px;
+    }
+
+    .btn-row { display: flex; flex-wrap: wrap; gap: 4px; }
+
+    button {
+      background: #2e3340;
+      color: #ccc;
+      border: 1px solid rgba(255,255,255,.08);
+      padding: 5px 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: background .15s;
+      white-space: nowrap;
+    }
+
+    button:hover { background: #4a90d9; color: #fff; }
+    button.active { background: #4a90d9; color: #fff; border-color: #4a90d9; }
+
+    .slider-row { margin: 5px 0; }
+
+    .slider-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: #aaa;
+      margin-bottom: 2px;
+    }
+
+    input[type=range] {
+      width: 100%;
+      accent-color: #4a90d9;
+    }
+
+    #tip {
+      position: absolute;
+      bottom: 30px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,.78);
+      color: #4fc3f7;
+      font-size: 13px;
+      padding: 6px 18px;
+      border-radius: 4px;
+      pointer-events: none;
+      transition: opacity .3s;
+      opacity: 0;
+      z-index: 1001;
+      white-space: nowrap;
+    }
+
+    #tip.show { opacity: 1; }
+  </style>
+</head>
+<body>
+  <div id="mapContainer"></div>
+
+  <div id="panel">
+    <h3>🗺️ 影像图层演示</h3>
+
+    <!-- 底图类型 -->
+    <div class="section">
+      <div class="section-title">底图类型（setBaseImagery / ImageryLayer）</div>
+      <div class="btn-row">
+        <button id="btn-naturalEarth" class="active" onclick="setBaseMap('naturalEarth')">自然地球</button>
+        <button id="btn-osm"          onclick="setBaseMap('osm')">OSM</button>
+        <button id="btn-cartoLight"   onclick="setBaseMap('cartoLight')">CARTO 亮色</button>
+        <button id="btn-cartoDark"    onclick="setBaseMap('cartoDark')">CARTO 暗色</button>
+        <button id="btn-none"         onclick="setBaseMap('none')">无底图</button>
+      </div>
+    </div>
+
+    <!-- 叠加纯色图层 -->
+    <div class="section">
+      <div class="section-title">叠加图层（singleColor 类型）</div>
+      <div class="btn-row">
+        <button onclick="addColorLayer('#e74c3c', '红色叠层')">红色</button>
+        <button onclick="addColorLayer('#2ecc71', '绿色叠层')">绿色</button>
+        <button onclick="addColorLayer('#3498db', '蓝色叠层')">蓝色</button>
+        <button onclick="addColorLayer('#f39c12', '橙色叠层')">橙色</button>
+        <button onclick="removeOverlay()">移除</button>
+      </div>
+    </div>
+
+    <!-- 叠加图层透明度 -->
+    <div class="section">
+      <div class="section-title">叠加图层透明度（setAlpha）</div>
+      <div class="slider-row">
+        <div class="slider-label">
+          <span>透明度</span>
+          <span id="alphaVal">0.30</span>
+        </div>
+        <input type="range" id="alphaSlider" min="0" max="1" step="0.01" value="0.3"
+               oninput="setOverlayAlpha(+this.value)">
+      </div>
+    </div>
+
+    <!-- 底图滤镜 -->
+    <div class="section">
+      <div class="section-title">底图滤镜（setBrightness / setContrast / setSaturation / setHue）</div>
+      <div class="slider-row">
+        <div class="slider-label"><span>亮度（brightness）</span><span id="brightnessVal">1.00</span></div>
+        <input type="range" id="brightnessSlider" min="0" max="3" step="0.05" value="1"
+               oninput="onSliderChange('brightness', +this.value)">
+      </div>
+      <div class="slider-row">
+        <div class="slider-label"><span>对比度（contrast）</span><span id="contrastVal">1.00</span></div>
+        <input type="range" id="contrastSlider" min="0" max="3" step="0.05" value="1"
+               oninput="onSliderChange('contrast', +this.value)">
+      </div>
+      <div class="slider-row">
+        <div class="slider-label"><span>饱和度（saturation）</span><span id="saturationVal">1.00</span></div>
+        <input type="range" id="saturationSlider" min="0" max="3" step="0.05" value="1"
+               oninput="onSliderChange('saturation', +this.value)">
+      </div>
+      <div class="slider-row">
+        <div class="slider-label"><span>色调偏移（hue）</span><span id="hueVal">0.00</span></div>
+        <input type="range" id="hueSlider" min="-3.14" max="3.14" step="0.05" value="0"
+               oninput="onSliderChange('hue', +this.value)">
+      </div>
+      <div class="slider-row">
+        <div class="slider-label"><span>伽马（gamma）</span><span id="gammaVal">1.00</span></div>
+        <input type="range" id="gammaSlider" min="0" max="3" step="0.05" value="1"
+               oninput="onSliderChange('gamma', +this.value)">
+      </div>
+      <div class="btn-row" style="margin-top: 6px">
+        <button onclick="resetFilters()">重置滤镜</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="tip"></div>
+
+  <script src="../lib/geoglobe.min.js"></script>
+  <script>
+    /* ═══════════════════════════════════════
+     *  初始化地图
+     * ═══════════════════════════════════════ */
+    const map = new geoGlobe.GeoMap('mapContainer', {
+      baseImagery: 'naturalEarth',    // 默认自然地球底图（本地资源，无需网络）
+      control: {
+        timeline: false, animation: false, baseLayerPicker: false,
+        homeButton: false, sceneModePicker: false,
+        navigationHelpButton: false, fullscreenButton: false,
+        toolbar: true, navBar: true
+      },
+      camera: { position: [105, 35, 8000000], pitch: -90 }
+    });
+
+    let baseLayer   = null;   // 当前用户添加的底图图层（非内置）
+    let overlayLayer = null;  // 叠加图层
+    let activeBtnId = 'btn-naturalEarth';
+
+    /* ═══════════════════════════════════════
+     *  底图切换
+     * ═══════════════════════════════════════ */
+    function setBaseMap(key) {
+      // 激活按钮
+      document.getElementById(activeBtnId).classList.remove('active');
+      activeBtnId = 'btn-' + key;
+      document.getElementById(activeBtnId).classList.add('active');
+
+      // 移除上一个用户底图
+      if (baseLayer) {
+        map.removeLayer(baseLayer);
+        baseLayer = null;
+      }
+
+      switch (key) {
+        case 'naturalEarth':
+          // 内置底图，直接调 setBaseImagery
+          map.setBaseImagery('naturalEarth');
+          showTip('自然地球底图（本地 TMS，无需网络）');
+          resetFilterSliders();
+          return;
+
+        case 'none':
+          map.setBaseImagery('none');
+          showTip('无底图 — 纯黑色背景');
+          return;
+
+        case 'osm':
+          baseLayer = new geoGlobe.ImageryLayer({
+            name: 'OpenStreetMap',
+            type: 'osm'
+          });
+          showTip('OpenStreetMap 底图（需要网络）');
+          break;
+
+        case 'cartoLight':
+          baseLayer = new geoGlobe.ImageryLayer({
+            name: 'CARTO Light',
+            type: 'xyz',
+            url: 'https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+            maximumLevel: 19
+          });
+          showTip('CARTO Light 瓦片底图（需要网络）');
+          break;
+
+        case 'cartoDark':
+          baseLayer = new geoGlobe.ImageryLayer({
+            name: 'CARTO Dark',
+            type: 'xyz',
+            url: 'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+            maximumLevel: 19
+          });
+          showTip('CARTO Dark 瓦片底图（需要网络）');
+          break;
+      }
+
+      if (baseLayer) {
+        map.setBaseImagery('none');   // 清空内置底图，改用用户图层
+        map.addLayer(baseLayer);
+        resetFilterSliders();
+      }
+    }
+
+    /* ═══════════════════════════════════════
+     *  叠加图层
+     * ═══════════════════════════════════════ */
+    function addColorLayer(color, label) {
+      if (overlayLayer) {
+        map.removeLayer(overlayLayer);
+      }
+      overlayLayer = new geoGlobe.ImageryLayer({
+        name: label,
+        type: 'singleColor',
+        color,
+        alpha: 0.3
+      });
+      map.addLayer(overlayLayer);
+
+      document.getElementById('alphaSlider').value = 0.3;
+      document.getElementById('alphaVal').textContent = '0.30';
+      showTip('叠加图层已添加：' + label + '（透明度 0.30）');
+    }
+
+    function removeOverlay() {
+      if (!overlayLayer) return showTip('当前没有叠加图层');
+      map.removeLayer(overlayLayer);
+      overlayLayer = null;
+      showTip('叠加图层已移除');
+    }
+
+    function setOverlayAlpha(val) {
+      document.getElementById('alphaVal').textContent = val.toFixed(2);
+      if (overlayLayer) {
+        overlayLayer.setAlpha(val);   // ImageryLayer.setAlpha(alpha)
+      } else {
+        showTip('请先添加叠加图层');
+      }
+    }
+
+    /* ═══════════════════════════════════════
+     *  底图滤镜
+     * ═══════════════════════════════════════ */
+    function onSliderChange(type, val) {
+      document.getElementById(type + 'Val').textContent = val.toFixed(2);
+      applyFilter(type, val);
+    }
+
+    function applyFilter(type, val) {
+      // 优先操作用户添加的 baseLayer；回退到 Cesium 内置 imageryLayers[0]
+      const layer = baseLayer || getCesiumBaseLayer();
+      if (!layer) return;
+
+      switch (type) {
+        case 'brightness': layer.setBrightness(val); break;
+        case 'contrast':   layer.setContrast(val);   break;
+        case 'saturation': layer.setSaturation(val); break;
+        case 'hue':        layer.setHue(val);        break;
+        case 'gamma':      layer.setGamma(val);      break;
+      }
+    }
+
+    /**
+     * 当使用内置 naturalEarth 时，获取封装有 set* 方法的代理对象
+     */
+    function getCesiumBaseLayer() {
+      const cesiumLayer = map.viewer.imageryLayers.get(0);
+      if (!cesiumLayer) return null;
+      return {
+        setBrightness: v => { cesiumLayer.brightness = v; },
+        setContrast:   v => { cesiumLayer.contrast = v; },
+        setSaturation: v => { cesiumLayer.saturation = v; },
+        setHue:        v => { cesiumLayer.hue = v; },
+        setGamma:      v => { cesiumLayer.gamma = v; }
+      };
+    }
+
+    function resetFilters() {
+      const defaults = {
+        brightness: 1, contrast: 1, saturation: 1, hue: 0, gamma: 1
+      };
+      for (const [key, val] of Object.entries(defaults)) {
+        document.getElementById(key + 'Slider').value = val;
+        document.getElementById(key + 'Val').textContent = val.toFixed(2);
+        applyFilter(key, val);
+      }
+      showTip('底图滤镜已全部重置');
+    }
+
+    function resetFilterSliders() {
+      const defaults = {
+        brightness: 1, contrast: 1, saturation: 1, hue: 0, gamma: 1
+      };
+      for (const [key, val] of Object.entries(defaults)) {
+        document.getElementById(key + 'Slider').value = val;
+        document.getElementById(key + 'Val').textContent = val.toFixed(2);
+      }
+    }
+
+    /* ═══════════════════════════════════════
+     *  提示
+     * ═══════════════════════════════════════ */
+    let tipTimer;
+    function showTip(text) {
+      const el = document.getElementById('tip');
+      el.textContent = text;
+      el.classList.add('show');
+      clearTimeout(tipTimer);
+      tipTimer = setTimeout(() => el.classList.remove('show'), 4500);
+    }
+
+    showTip('geoGlobe3D 影像图层示例 — 切换底图类型并调节滤镜');
+  </script>
+</body>
+</html>

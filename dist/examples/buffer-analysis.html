@@ -1,0 +1,353 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>geoGlobe3D 示例 - 缓冲区分析</title>
+  <link rel="stylesheet" href="../lib/Widgets/widgets.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body, #mapContainer { width: 100%; height: 100%; overflow: hidden; font-family: 'Microsoft YaHei', sans-serif; }
+
+    #toolbar {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 1000;
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      max-width: 780px;
+    }
+
+    .bar-group {
+      background: rgba(20, 26, 36, 0.94);
+      border-radius: 6px;
+      padding: 6px 10px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      box-shadow: 0 2px 10px rgba(0,0,0,.4);
+    }
+
+    .bar-group .group-label { font-size: 11px; color: #888; margin-right: 4px; white-space: nowrap; }
+    .bar-group button {
+      background: #3a3f4b; color: #ddd; border: 1px solid rgba(255,255,255,.06);
+      padding: 5px 10px; cursor: pointer; border-radius: 4px; font-size: 12px;
+      white-space: nowrap; transition: background .15s;
+    }
+    .bar-group button:hover { background: #4a90d9; color: #fff; }
+    .bar-group button.running { background: #e67e22; color: #fff; }
+    .bar-group button.danger:hover { background: #d32f2f; color: #fff; }
+
+    /* 参数面板 */
+    #paramPanel {
+      position: absolute;
+      top: 60px;
+      left: 10px;
+      width: 280px;
+      background: rgba(20, 24, 32, 0.95);
+      border-radius: 8px;
+      padding: 14px;
+      z-index: 1000;
+      color: #ddd;
+      font-size: 12px;
+      box-shadow: 0 2px 12px rgba(0,0,0,.4);
+    }
+    #paramPanel h4 { color: #4fc3f7; margin-bottom: 10px; font-size: 13px; }
+    #paramPanel .row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+    #paramPanel label { width: 80px; color: #aaa; flex-shrink: 0; }
+    #paramPanel input[type=number], #paramPanel select {
+      flex: 1; background: #2a2f3a; color: #ddd; border: 1px solid #444;
+      padding: 4px 6px; border-radius: 4px; font-size: 12px;
+    }
+    #paramPanel .radio-group { display: flex; gap: 8px; flex: 1; }
+    #paramPanel .radio-group label {
+      width: auto; color: #ccc; display: flex; align-items: center; gap: 3px; cursor: pointer;
+    }
+
+    /* 结果面板 */
+    #resultPanel {
+      position: absolute;
+      bottom: 50px;
+      right: 10px;
+      width: 240px;
+      background: rgba(20, 24, 32, 0.95);
+      border-radius: 8px;
+      padding: 12px;
+      z-index: 1000;
+      color: #ddd;
+      font-size: 12px;
+      box-shadow: 0 2px 12px rgba(0,0,0,.4);
+    }
+    #resultPanel h4 { color: #4fc3f7; margin-bottom: 8px; font-size: 13px; }
+    #resultPanel .line { margin: 5px 0; padding: 4px 0; border-bottom: 1px solid #333; }
+    #resultPanel .label { color: #aaa; }
+    #resultPanel .val { color: #2ecc71; font-weight: bold; }
+
+    #tip {
+      position: absolute;
+      bottom: 40px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,.78);
+      color: #4fc3f7;
+      font-size: 13px;
+      padding: 7px 20px;
+      border-radius: 4px;
+      pointer-events: none;
+      transition: opacity .3s;
+      opacity: 0;
+      z-index: 1001;
+      white-space: nowrap;
+    }
+    #tip.show { opacity: 1; }
+  </style>
+</head>
+<body>
+  <div id="mapContainer"></div>
+
+  <!-- 顶部工具栏 -->
+  <div id="toolbar">
+    <!-- 点缓冲区 -->
+    <div class="bar-group">
+      <span class="group-label">● 点</span>
+      <button id="btnPoint" onclick="startPoint()">点缓冲区</button>
+    </div>
+
+    <!-- 线缓冲区 -->
+    <div class="bar-group">
+      <span class="group-label">— 线</span>
+      <button id="btnLineBoth"  onclick="startLine('both')">双侧</button>
+      <button id="btnLineLeft"  onclick="startLine('left')">左侧</button>
+      <button id="btnLineRight" onclick="startLine('right')">右侧</button>
+    </div>
+
+    <!-- 面缓冲区 -->
+    <div class="bar-group">
+      <span class="group-label">◼ 面</span>
+      <button id="btnPolyOuter" onclick="startPolygon('outer')">外扩</button>
+      <button id="btnPolyInner" onclick="startPolygon('inner')">内缩</button>
+    </div>
+
+    <!-- 操作 -->
+    <div class="bar-group">
+      <button class="danger" onclick="clearAll()">清除</button>
+    </div>
+  </div>
+
+  <!-- 参数面板 -->
+  <div id="paramPanel">
+    <h4>⚙ 缓冲参数</h4>
+    <div class="row">
+      <label>缓冲距离</label>
+      <input type="number" id="inputDistance" value="10000" min="1" max="500000" step="50"> <span style="color:#888">米（最大 500km）</span>
+    </div>
+    <div class="row">
+      <label>填充颜色</label>
+      <div class="radio-group">
+        <label><input type="radio" name="color" value="#00cfff" checked> 青</label>
+        <label><input type="radio" name="color" value="#2ecc71"> 绿</label>
+        <label><input type="radio" name="color" value="#e74c3c"> 红</label>
+        <label><input type="radio" name="color" value="#f39c12"> 橙</label>
+      </div>
+    </div>
+    <div class="row">
+      <label>透明度</label>
+      <input type="number" id="inputAlpha" value="0.35" min="0.1" max="1" step="0.05">
+    </div>
+  </div>
+
+  <!-- 结果面板 -->
+  <div id="resultPanel">
+    <h4>📊 分析结果</h4>
+    <div id="resultContent" style="color:#888">暂无结果</div>
+  </div>
+
+  <div id="tip"></div>
+
+  <script src="../lib/geoglobe.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@turf/turf@7/turf.min.js"></script>
+  <script>
+    /* ═══════════════════════════════════════════════
+     *  初始化地图
+     * ═══════════════════════════════════════════════ */
+    const map = new geoGlobe.GeoMap('mapContainer', {
+      terrain: { enabled: false },
+      scene: { globe: { depthTestAgainstTerrain: false } },
+      control: {
+        timeline: false, animation: false, baseLayerPicker: false,
+        homeButton: false, sceneModePicker: false, navigationHelpButton: false,
+        fullscreenButton: false,
+        toolbar: true,
+        navBar: true,
+        navigation: false
+      },
+      camera: {
+        position: [116.39, 39.9, 80000],
+        heading: 0,
+        pitch: -60,
+        roll: 0
+      }
+    });
+
+    const buffer = new geoGlobe.Buffer(map);
+    let activeBtn = null;
+
+    /* ═══════════════════════════════════════════════
+     *  获取参数
+     * ═══════════════════════════════════════════════ */
+    function getOpts() {
+      let distance = parseFloat(document.getElementById('inputDistance').value) || 500;
+      if (distance > 500000) {
+        distance = 500000;
+        document.getElementById('inputDistance').value = 500000;
+        showTip('缓冲距离超出范围，已自动限制为 500000 米', 3000);
+      }
+      const color = document.querySelector('input[name="color"]:checked').value;
+      const alpha = parseFloat(document.getElementById('inputAlpha').value) || 0.35;
+      return { distance, style: { color, alpha } };
+    }
+
+    function setRunning(btn) {
+      if (activeBtn) activeBtn.classList.remove('running');
+      activeBtn = btn;
+      if (btn) btn.classList.add('running');
+    }
+
+    /* ═══════════════════════════════════════════════
+     *  点缓冲区
+     * ═══════════════════════════════════════════════ */
+    async function startPoint() {
+      const btn = document.getElementById('btnPoint');
+      setRunning(btn);
+      showTip('左键点击地图选择中心点');
+      try {
+        const opts = getOpts();
+        const result = await buffer.point({ radius: opts.distance, style: opts.style });
+        if (result) {
+          const area = turf.area(result.geojson);
+          showResult('点缓冲区', [
+            ['中心', `${result.center[0].toFixed(4)}, ${result.center[1].toFixed(4)}`],
+            ['半径', `${opts.distance} 米`],
+            ['面积', `${(area / 1e6).toFixed(4)} km²`],
+          ]);
+          showTip('点缓冲区完成', 3000);
+        } else {
+          showTip('缓冲距离过大，无法生成缓冲区', 3000);
+        }
+      } catch (e) {
+        showTip(e.message || '操作取消', 2500);
+      }
+      setRunning(null);
+    }
+
+    /* ═══════════════════════════════════════════════
+     *  线缓冲区
+     * ═══════════════════════════════════════════════ */
+    async function startLine(side) {
+      const btnMap = { both: 'btnLineBoth', left: 'btnLineLeft', right: 'btnLineRight' };
+      setRunning(document.getElementById(btnMap[side]));
+      const sideLabel = { both: '双侧', left: '左侧', right: '右侧' }[side];
+      showTip('左键添加点，右键完成绘制');
+      try {
+        const opts = getOpts();
+        const result = await buffer.line({ distance: opts.distance, side, style: opts.style });
+        if (result && result.geojson) {
+          const area = turf.area(result.geojson);
+          const len = calcLength(result.inputPositions);
+          showResult(`线缓冲区（${sideLabel}）`, [
+            ['线段长度', `${(len / 1000).toFixed(3)} km`],
+            ['缓冲距离', `${opts.distance} 米`],
+            ['方向', sideLabel],
+            ['面积', `${(area / 1e6).toFixed(4)} km²`],
+          ]);
+          showTip(`线缓冲区（${sideLabel}）完成`, 3000);
+        } else {
+          showTip('缓冲距离过大，无法生成缓冲区', 3000);
+        }
+      } catch (e) {
+        showTip(e.message || '操作取消', 2500);
+      }
+      setRunning(null);
+    }
+
+    /* ═══════════════════════════════════════════════
+     *  面缓冲区
+     * ═══════════════════════════════════════════════ */
+    async function startPolygon(direction) {
+      const btnMap = { outer: 'btnPolyOuter', inner: 'btnPolyInner' };
+      setRunning(document.getElementById(btnMap[direction]));
+      const dirLabel = { outer: '外扩', inner: '内缩' }[direction];
+      showTip('左键添加点，右键完成绘制');
+      try {
+        const opts = getOpts();
+        const result = await buffer.polygon({ distance: opts.distance, direction, style: opts.style });
+        if (result && result.geojson) {
+          const area = turf.area(result.geojson);
+          showResult(`面缓冲区（${dirLabel}）`, [
+            ['缓冲距离', `${opts.distance} 米`],
+            ['方向', dirLabel],
+            ['缓冲面积', `${(area / 1e6).toFixed(4)} km²`],
+          ]);
+          showTip(`面缓冲区（${dirLabel}）完成`, 3000);
+        } else {
+          showTip('缓冲距离过大，无法生成缓冲区', 3000);
+        }
+      } catch (e) {
+        showTip(e.message || '操作取消', 2500);
+      }
+      setRunning(null);
+    }
+
+    /* ═══════════════════════════════════════════════
+     *  清除
+     * ═══════════════════════════════════════════════ */
+    function clearAll() {
+      buffer.clear();
+      document.getElementById('resultContent').innerHTML = '<span style="color:#888">暂无结果</span>';
+      showTip('已清除所有缓冲区', 2000);
+      setRunning(null);
+    }
+
+    /* ═══════════════════════════════════════════════
+     *  辅助：线段长度（haversine）
+     * ═══════════════════════════════════════════════ */
+    function calcLength(positions) {
+      let len = 0;
+      for (let i = 1; i < positions.length; i++) {
+        const R = 6371000;
+        const dLat = (positions[i][1] - positions[i-1][1]) * Math.PI / 180;
+        const dLon = (positions[i][0] - positions[i-1][0]) * Math.PI / 180;
+        const a = Math.sin(dLat/2)**2 + Math.cos(positions[i-1][1]*Math.PI/180) * Math.cos(positions[i][1]*Math.PI/180) * Math.sin(dLon/2)**2;
+        len += 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      }
+      return len;
+    }
+
+    /* ═══════════════════════════════════════════════
+     *  UI：结果 & 提示
+     * ═══════════════════════════════════════════════ */
+    function showResult(title, rows) {
+      const html = rows.map(([k, v]) =>
+        `<div class="line"><span class="label">${k}：</span><span class="val">${v}</span></div>`
+      ).join('');
+      document.getElementById('resultContent').innerHTML =
+        `<div style="color:#4fc3f7;margin-bottom:6px;font-weight:bold">${title}</div>${html}`;
+    }
+
+    let tipTimer = null;
+    function showTip(text, duration = 0) {
+      const el = document.getElementById('tip');
+      el.textContent = text;
+      el.classList.add('show');
+      clearTimeout(tipTimer);
+      if (duration > 0) {
+        tipTimer = setTimeout(() => el.classList.remove('show'), duration);
+      }
+    }
+
+    showTip('选择上方缓冲类型开始分析', 4000);
+  </script>
+</body>
+</html>

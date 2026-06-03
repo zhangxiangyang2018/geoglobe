@@ -1,0 +1,17 @@
+{
+  "name": "geoglobe-3d",
+  "version": "1.3.35",
+  "description": "基于 Cesium 的三维地图框架，支持 Vue/React 等前端框架",
+  "main": "lib/geoglobe.min.js",
+  "browser": "lib/geoglobe.min.js",
+  "keywords": [
+    "cesium",
+    "3d",
+    "map",
+    "gis",
+    "webgl",
+    "vue",
+    "geoglobe"
+  ],
+  "license": "Apache-2.0"
+}

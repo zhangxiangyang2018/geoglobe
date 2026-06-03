@@ -1,0 +1,340 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>geoGlobe3D - 时间系统示例</title>
+  <link rel="stylesheet" href="../lib/Widgets/widgets.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body, #map { width: 100%; height: 100%; overflow: hidden; }
+
+    #panel {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 999;
+      width: 290px;
+      background: rgba(16, 20, 30, 0.93);
+      border-radius: 8px;
+      padding: 14px;
+      color: #ccc;
+      font: 13px 'Microsoft YaHei', sans-serif;
+      box-shadow: 0 4px 20px rgba(0,0,0,.6);
+    }
+    #panel h3 {
+      color: #4fc3f7;
+      font-size: 14px;
+      margin-bottom: 12px;
+      border-bottom: 1px solid rgba(255,255,255,.1);
+      padding-bottom: 7px;
+    }
+    .section { margin-bottom: 12px; }
+    .label {
+      color: #888;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .5px;
+      margin-bottom: 5px;
+    }
+    .btn-row { display: flex; flex-wrap: wrap; gap: 5px; }
+    button {
+      background: #22293a;
+      color: #ccc;
+      border: 1px solid rgba(255,255,255,.1);
+      padding: 5px 11px;
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: background .15s;
+    }
+    button:hover { background: #1976d2; color: #fff; }
+    button.active { background: #1976d2; color: #fff; border-color: #1976d2; }
+
+    .time-display {
+      font-size: 12px;
+      color: #4fc3f7;
+      background: rgba(0,0,0,.4);
+      padding: 6px 10px;
+      border-radius: 4px;
+      font-family: monospace;
+      margin-bottom: 8px;
+      min-height: 22px;
+    }
+
+    input[type=range] {
+      width: 100%;
+      margin: 4px 0;
+      accent-color: #1976d2;
+    }
+    .row-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: #888;
+      margin-bottom: 2px;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <div id="panel">
+    <h3>时间系统演示</h3>
+
+    <div class="section">
+      <div class="label">当前时间</div>
+      <div class="time-display" id="timeDisplay">--</div>
+    </div>
+
+    <div class="section">
+      <div class="label">场景预设</div>
+      <div class="btn-row">
+        <button onclick="setScene('day')">白天</button>
+        <button onclick="setScene('night')">夜晚</button>
+        <button onclick="setScene('eclipse')">日食</button>
+        <button onclick="setScene('solstice')">夏至</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="label">播放控制</div>
+      <div class="btn-row">
+        <button id="btnPlay" onclick="togglePlay()">▶ 播放</button>
+        <button onclick="map.setTime(new Date().toISOString())">同步现在</button>
+        <button onclick="map.setTimeSpeed(1)">1×</button>
+        <button onclick="map.setTimeSpeed(60)">60×</button>
+        <button onclick="map.setTimeSpeed(3600)">1h/s</button>
+        <button onclick="map.setTimeSpeed(-60)">倒放</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="row-label">
+        <span>播放速率</span>
+        <span id="speedVal">1×</span>
+      </div>
+      <input type="range" id="speedSlider" min="-3600" max="3600" step="60" value="1"
+             oninput="onSpeedSlide(this.value)">
+    </div>
+
+    <div class="section">
+      <div class="label">时钟范围模式</div>
+      <div class="btn-row">
+        <button onclick="setRange('unbounded')">无限</button>
+        <button onclick="setRange('clamped')">到头停止</button>
+        <button onclick="setRange('loop')">循环</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="label">光照 &amp; 大气</div>
+      <div class="btn-row">
+        <button id="btnSun" class="active" onclick="toggleSun()">太阳光照</button>
+        <button id="btnAtm" class="active" onclick="toggleAtm()">大气</button>
+        <button id="btnFog" onclick="toggleFog()">雾效</button>
+        <button id="btnShadow" onclick="toggleShadow()">阴影</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="label">自定义时间段（2024 北京）</div>
+      <div class="btn-row">
+        <button onclick="setCustomRange()">设置 2024 区间</button>
+        <button onclick="fastForward()">快速预览全年</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="../lib/geoglobe.min.js"></script>
+  <script>
+    const G = geoGlobe;
+
+    /* ── 初始化 ── */
+    const map = new G.GeoMap('map', {
+      control: {
+        animation: true,    // 开启动画控件，配合时间系统
+        timeline: true,     // 开启时间轴
+        baseLayerPicker: false,
+        homeButton: false,
+        sceneModePicker: false,
+        navigationHelpButton: false,
+        fullscreenButton: false,
+        toolbar: false,
+      },
+      camera: {
+        position: [116.39, 39.91, 2000000],
+        pitch: -45,
+      }
+    });
+
+    // 开启太阳光照效果
+    map.setSunLight(true);
+
+    /* ── 实时显示当前时间 ── */
+    map.viewer.clock.onTick.addEventListener(() => {
+      const iso = map.getTime();
+      // 转为北京时间 (UTC+8) 友好显示
+      const date = new Date(iso);
+      document.getElementById('timeDisplay').textContent =
+        date.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
+    });
+
+    /* ── 场景预设 ── */
+    function setScene(type) {
+      switch (type) {
+        case 'day':
+          map.setTime('2024-06-21T04:00:00Z'); // 北京正午
+          map.setTimeSpeed(1);
+          map.stopClock();
+          tip('白天场景（北京夏至正午）');
+          break;
+        case 'night':
+          map.setTime('2024-06-21T16:00:00Z'); // 北京午夜
+          map.setTimeSpeed(1);
+          map.stopClock();
+          tip('夜晚场景（北京夏至午夜）');
+          break;
+        case 'eclipse':
+          // 2024 年 4 月 8 日日全食（北美，UTC 18:17）
+          map.setTime('2024-04-08T18:17:00Z');
+          map.setTimeSpeed(1);
+          map.stopClock();
+          tip('2024-04-08 日全食时刻（北美区域可见）');
+          break;
+        case 'solstice':
+          map.setTime('2024-06-20T20:51:00Z'); // UTC 夏至时刻
+          map.setTimeSpeed(1);
+          map.stopClock();
+          tip('2024 夏至时刻');
+          break;
+      }
+      updatePlayBtn();
+    }
+
+    /* ── 播放/暂停 ── */
+    let playing = false;
+
+    function togglePlay() {
+      if (playing) {
+        map.stopClock();
+        playing = false;
+      } else {
+        map.startClock();
+        playing = true;
+      }
+      updatePlayBtn();
+    }
+
+    function updatePlayBtn() {
+      playing = map.viewer.clock.shouldAnimate;
+      const btn = document.getElementById('btnPlay');
+      btn.textContent = playing ? '⏸ 暂停' : '▶ 播放';
+      btn.classList.toggle('active', playing);
+    }
+
+    // 同步 Cesium 内置动画控件与我们的按钮状态
+    map.viewer.clock.onTick.addEventListener(updatePlayBtn);
+
+    /* ── 速率滑块 ── */
+    function onSpeedSlide(val) {
+      const v = Number(val);
+      map.setTimeSpeed(v);
+      const label = v === 0 ? '暂停' : (Math.abs(v) >= 3600 ? `${(v/3600).toFixed(0)}h/s` :
+                    Math.abs(v) >= 60 ? `${(v/60).toFixed(0)}min/s` : `${v}×`);
+      document.getElementById('speedVal').textContent = label;
+    }
+
+    /* ── 时钟范围 ── */
+    function setRange(mode) {
+      map.setClock({ clockRange: mode });
+      tip(`时钟模式: ${mode}`);
+    }
+
+    /* ── 2024 自定义时间段 ── */
+    function setCustomRange() {
+      map.setClock({
+        start:      '2024-01-01T00:00:00Z',
+        stop:       '2024-12-31T23:59:59Z',
+        current:    '2024-01-01T00:00:00Z',
+        clockRange: 'loop',
+        multiplier: 86400,   // 1秒 = 1天
+        animate:    true,
+      });
+      playing = true;
+      updatePlayBtn();
+      document.getElementById('speedSlider').value = 86400;
+      document.getElementById('speedVal').textContent = '1day/s';
+      tip('已设置 2024 全年区间，循环播放 (1秒=1天)');
+    }
+
+    function fastForward() {
+      map.setClock({
+        start:      '2024-01-01T00:00:00Z',
+        stop:       '2024-12-31T23:59:59Z',
+        current:    '2024-01-01T00:00:00Z',
+        clockRange: 'loop',
+        multiplier: 86400 * 7,  // 1秒 = 1周
+        animate:    true,
+      });
+      playing = true;
+      updatePlayBtn();
+      tip('快速预览：1秒 = 1周，观察全年太阳/阴影变化');
+    }
+
+    /* ── 光照切换 ── */
+    let sunOn = true, atmOn = true, fogOn = false, shadowOn = false;
+
+    function toggleSun() {
+      sunOn = !sunOn;
+      map.setSunLight(sunOn);
+      document.getElementById('btnSun').classList.toggle('active', sunOn);
+    }
+    function toggleAtm() {
+      atmOn = !atmOn;
+      map.setAtmosphere({ show: atmOn });
+      document.getElementById('btnAtm').classList.toggle('active', atmOn);
+    }
+    function toggleFog() {
+      fogOn = !fogOn;
+      map.setFog({ enabled: fogOn, density: 0.0003 });
+      document.getElementById('btnFog').classList.toggle('active', fogOn);
+    }
+    function toggleShadow() {
+      shadowOn = !shadowOn;
+      map.viewer.shadows = shadowOn;
+      document.getElementById('btnShadow').classList.toggle('active', shadowOn);
+      tip(shadowOn ? '阴影已开启（地形/建筑投影）' : '阴影已关闭');
+    }
+
+    /* ── 提示 ── */
+    let tipEl = null;
+    function tip(msg) {
+      if (!tipEl) {
+        tipEl = document.createElement('div');
+        tipEl.style.cssText = `
+          position:fixed;bottom:28px;left:50%;transform:translateX(-50%);
+          background:rgba(0,0,0,.75);color:#4fc3f7;padding:6px 16px;
+          border-radius:4px;font:13px sans-serif;pointer-events:none;z-index:9999;
+          opacity:0;transition:opacity .3s;
+        `;
+        document.body.appendChild(tipEl);
+      }
+      tipEl.textContent = msg;
+      tipEl.style.opacity = '1';
+      clearTimeout(tip._t);
+      tip._t = setTimeout(() => { tipEl.style.opacity = '0'; }, 4000);
+    }
+
+    /* ── 初始化：设为当前时间并开始播放 ── */
+    map.setClock({
+      current: new Date().toISOString(),
+      multiplier: 60,
+      animate: true,
+    });
+    playing = true;
+    updatePlayBtn();
+    document.getElementById('speedSlider').value = 60;
+    document.getElementById('speedVal').textContent = '60×';
+  </script>
+</body>
+</html>
